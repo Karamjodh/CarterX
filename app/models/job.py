@@ -14,7 +14,7 @@ class JobStatus(str, enum.Enum):
 class Job(Base):
     __tablename__ = 'jobs'
     id = Column(String, primary_key = True, default = lambda : str(uuid.uuid4()))
-    status = Column(SQLEnum(JobStatus), default = JobStatus.PENDING, nullabel = False)
+    status = Column(SQLEnum(JobStatus), default=JobStatus.PENDING, nullable=False)
     filename = Column(String, nullable = False)
     row_count = Column(Integer, nullable = True)
     stage_status = Column(JSON, default = dict)

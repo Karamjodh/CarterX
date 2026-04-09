@@ -1,0 +1,11 @@
+customer_id,transaction_id,product_name,category,quantity,price,date
+C001,T001,Laptop,Electronics,1,999.99,2024-01-15
+C002,T002,Phone,Electronics,1,699.99,2024-01-16
+C001,T003,Mouse,Accessories,2,29.99,2024-01-17
+C003,T004,Desk,Furniture,1,349.99,2024-01-18
+C002,T005,Keyboard,Accessories,1,79.99,2024-01-19
+C004,T006,Monitor,Electronics,2,449.99,2024-01-20
+C003,T007,Chair,Furniture,1,299.99,2024-01-21
+C005,T008,Laptop,Electronics,1,999.99,2024-01-22
+C001,T009,Headphones,Accessories,1,149.99,2024-01-23
+C004,T010,Phone,Electronics,1,699.99,2024-01-24

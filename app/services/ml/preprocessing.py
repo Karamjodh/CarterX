@@ -186,4 +186,4 @@ def _build_summary(df : pd.DataFrame, rows_removed : int) -> dict:
         top_cats = (df.groupby("category")["revenue"].sum().sort_values(ascending = False).head(5).round(2).to_dict())
         summary["top_categories"] = top_cats
 
-    return summary
+    return summar

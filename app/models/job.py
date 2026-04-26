@@ -17,7 +17,7 @@ class Job(Base):
     status = Column(SQLEnum(JobStatus), default=JobStatus.PENDING, nullable=False)
     filename = Column(String, nullable = False)
     row_count = Column(Integer, nullable = True)
-    stage_status = Column(JSON, default = dict)
+    stage_status = Column(JSON, default = dict) # it will contain the job status that why its dict.
     error_message = Column(String, nullable = True)
     created_at = Column(DateTime(timezone = True), server_default = func.now())
     updated_at = Column(DateTime(timezone = True), onupdate = func.now())

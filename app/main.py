@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.core.config import settings
 from app.db.session import init_db
-from app.api.routes import health, jobs, uploads,reports
+from app.api.routes import health, jobs, uploads,reports,insights
 
 @asynccontextmanager
 async def lifespan(app : FastAPI):
@@ -21,6 +21,7 @@ app.include_router(health.router, prefix = "/api/v1", tags = ["Health"])
 app.include_router(jobs.router, prefix = "/api/v1/jobs", tags = ["Jobs"])
 app.include_router(uploads.router, prefix = "/api/v1/uploads", tags = ["Uploads"])
 app.include_router(reports.router, prefix = "/api/v1/reports", tags = ["Reports"])
+app.include_router(insights.router, prefix = "/api/v1/insights", tags = ["Insights"])
 @app.get("/")
 def root():
     return {

@@ -5,14 +5,39 @@ from dataclasses import dataclass
 from sklearn.preprocessing import StandardScaler
 from rapidfuzz import process, fuzz
 
-CANONICAL_COLUMNS ={
-    "customer_id" : ["customer_id", "cust_id", "customerid", "client_id", "user_id"],
-    "transaction_id" : ["transaction_id", "order_id", "invoice_id", "txn_id"],
-    "product_name" : ["product_name", "item_name", "product", "item", "description"],
-    "category" : ["category", "product_category", "dept", "department", "type"],
-    "quantity" : ["quantity", "qty", "units", "count", "amount"],
-    "price" : ["price", "unit_price", "sale_price", "cost", "value"],
-    "date" : ["date", "purchase_date", "order_date", "transaction_date", "created_at"],
+CANONICAL_COLUMNS = {
+    "customer_id": [
+        "customer_id", "cust_id", "customerid", "client_id",
+        "user_id", "customer id",
+    ],
+    "transaction_id": [
+        "transaction_id", "order_id", "invoice_id", "txn_id",
+        "invoiceno", "invoice_no", "invoice no", "invoice_number",
+    ],
+    "product_name": [
+        "product_name", "item_name", "product", "item",
+        "description", "product_description",
+    ],
+    "product_id": [
+        "product_id", "item_id", "sku", "product_code",
+        "stockcode", "stock_code", "stock code",
+    ],
+    "category": [
+        "category", "product_category", "dept",
+        "department", "type",
+    ],
+    "quantity": [
+        "quantity", "qty", "units", "count", "amount",
+    ],
+    "price": [
+        "price", "unit_price", "sale_price", "cost",
+        "value", "unitprice", "unit price",
+    ],
+    "date": [
+        "date", "purchase_date", "order_date",
+        "transaction_date", "created_at",
+        "invoicedate", "invoice_date", "invoice date",
+    ],
 }
 REQUIRED_COLUMNS = {"customer_id", "quantity", "price", "date"}
 FUZZY_THRESHOLD = 75
@@ -40,6 +65,14 @@ def run_preprocessing(file_bytes: bytes, content_type : str) -> PreprocessingRes
     _validate_required_columns(column_map) # validated them
     reverse_map = {user_col : canonical for canonical, user_col in column_map.items()}
     df.rename(columns = reverse_map, inplace = True)
+# Rename columns to canonical names
+    reverse_map = {user_col: canonical for canonical, user_col in column_map.items()}
+    df.rename(columns=reverse_map, inplace=True)
+
+# TEMPORARY DEBUG — remove after fixing
+    print(f"Column map: {column_map}")
+    print(f"Columns after rename: {df.columns.tolist()}")
+    print(f"Rows before cleaning: {len(df)}")   
     # Fix data types
     df["date"] = pd.to_datetime(df["date"], errors="coerce") # errors="coerce" means it will mention NaN values where pandas cantparse the values with confidence
     df["quantity"] = pd.to_numeric(df["quantity"], errors = "coerce")
@@ -50,14 +83,31 @@ def run_preprocessing(file_bytes: bytes, content_type : str) -> PreprocessingRes
     if "category" in df.columns:
         df["category"] = df["category"].astype(str).str.strip()
     # missing values handling, outlier removal
+    # ── 4. Remove bad rows ─────────────────────────────────────────────────
     initial_rows = len(df)
-    df.dropna(subset = ["customer_id", "date", "price", "quantity"], inplace = True) # null values removed
-    df = df[(df["quantity"] > 0) & (df["price"] > 0)] # filtering
-    Q1 = df["price"].quantile(0.25)
-    Q3 = df["price"].quantile(0.75)
+
+# Drop rows missing critical values
+    df.dropna(subset=["customer_id", "date", "price", "quantity"], inplace=True)
+
+# Drop returns and zero-value rows
+    df = df[(df["quantity"] > 0) & (df["price"] > 0)]
+
+# Remove price outliers using IQR method
+    Q1  = df["price"].quantile(0.25)
+    Q3  = df["price"].quantile(0.75)
     IQR = Q3 - Q1
-    df = df[df["price"].between(Q1 - 3 * IQR, Q3 + 3 * IQR)] # Updated df with no outliers
+    df  = df[df["price"].between(Q1 - 3 * IQR, Q3 + 3 * IQR)]
+
     rows_removed = initial_rows - len(df)
+
+# ── ADD THIS CHECK ─────────────────────────────────────────────────────
+    if len(df) < 10:
+        raise ValueError(
+                f"After cleaning, only {len(df)} valid rows remained. "
+            f"The file had {rows_removed} rows removed due to missing customer IDs, "
+            f"negative quantities, or extreme outliers. "
+            f"Please check your data quality."
+        )
     # Feature Engineering
     df["revenue"] = df["quantity"] * df["price"]
     df["day_of_week"] = df["date"].dt.dayofweek # .dt -> datetime accessor
@@ -73,46 +123,59 @@ def run_preprocessing(file_bytes: bytes, content_type : str) -> PreprocessingRes
         column_map = column_map,
     )
 # Private Helpers
-def _load_file(file_bytes : bytes, content_type : str)-> pd.DataFrame:
-    """
-    Load CSV or XLSX bytes into a DataFrame.
-    """
+def _load_file(file_bytes: bytes, content_type: str) -> pd.DataFrame:
     try:
         if "csv" in content_type:
-            return pd.read_csv(io.BytesIO(file_bytes)) # most od time we recieve data in form of bytes BytesIO will convert Byte file into actual file
+            # Try UTF-8 first, fall back to latin-1 for special characters
+            try:
+                df = pd.read_csv(io.BytesIO(file_bytes), encoding="utf-8")
+            except UnicodeDecodeError:
+                df = pd.read_csv(io.BytesIO(file_bytes), encoding="latin-1")
         else:
-            return pd.read_excel(io.BytesIO(file_bytes))
+            df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
     except Exception as e:
-        raise ValueError(f"Could not read file : {e}")
+        raise ValueError(f"Could not read file: {e}")
+    return df
     
-def _map_columns(user_columns : list)-> dict:
+def _map_columns(user_columns: list) -> dict:
     """
     Maps user column names to canonical names using fuzzy matching.
-
-    Example:
-        user has "cust_id" → maps to "customer_id"
-        user has "purchase date" → maps to "date"
-
-    Returns dict of {canonical_name: user_column_name}
+    Uses normalized column names for matching but tracks originals.
     """
     all_aliases = {
-        alias : canonical for canonical, aliases in CANONICAL_COLUMNS.items() for alias in aliases # maps each aka with canonical names
+        alias: canonical
+        for canonical, aliases in CANONICAL_COLUMNS.items()
+        for alias in aliases
     }
-    normalized = {
-        col.lower().strip().replace(" ", "_"): col for col in user_columns # coverted user columns (which can be in any form) to specific aka mentioned in Canonical Columns dict.
-    }
+
     column_map = {}
-    for norm_col, original_col in normalized.items(): # key value from the dict where we normalized the column
-        if norm_col in all_aliases: # checked if norm_col even exists in the key of all aliases the dict with feasible data
-            canonical = all_aliases[norm_col] # accessed the canonical name of that norm_col
-            column_map[canonical] = original_col # mapped the canonical name to the original_col in column_map dict
-            continue # so in total 3 dict. 1st with Canonical -> aliases 2nd with norm_col -> original_name 3rd with canonical -> original_name
+    used_canonicals = set()  # prevent two columns mapping to same canonical
+
+    for original_col in user_columns:
+        norm_col = original_col.lower().strip().replace(" ", "_")
+
+        # Skip if this canonical is already mapped
+        # Try exact match first
+        if norm_col in all_aliases:
+            canonical = all_aliases[norm_col]
+            if canonical not in used_canonicals:
+                column_map[canonical] = original_col
+                used_canonicals.add(canonical)
+            continue
+
+        # Fuzzy match — but only accept if score is high enough
         match, score, _ = process.extractOne(
-            norm_col, all_aliases.keys(), scorer = fuzz.token_sort_ratio # fuzzy matching based on similarity score give result that have similar typos or tones 
+            norm_col,
+            all_aliases.keys(),
+            scorer=fuzz.token_sort_ratio
         )
+
         if score >= FUZZY_THRESHOLD:
             canonical = all_aliases[match]
-            column_map[canonical] = original_col
+            # Only map if this canonical hasn't been claimed yet
+            if canonical not in used_canonicals:
+                column_map[canonical] = original_col
+                used_canonicals.add(canonical)
 
     return column_map
 

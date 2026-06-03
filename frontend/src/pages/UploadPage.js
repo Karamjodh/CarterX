@@ -17,7 +17,7 @@ export default function UploadPage() {
     navigate(`/dashboard/${jobId}`)
   }
 
-  const handleFileChange = async (e) => {
+const handleFileChange = async (e) => {
     const file = e.target.files[0]
     if (!file) return
 
@@ -25,9 +25,15 @@ export default function UploadPage() {
     setUploadError(null)
 
     try {
+      console.log("Uploading file:", file.name)
       const response = await uploadFile(file)
-      setJobId(response.data.id)   // start polling this job
+      console.log("Upload response:", response)
+      console.log("Job ID:", response.data.id)
+      setJobId(response.data.id)
     } catch (err) {
+      console.log("Upload error:", err)
+      console.log("Error response:", err.response)
+      console.log("Error message:", err.message)
       setUploadError(
         err.response?.data?.detail || 'Upload failed. Please try again.'
       )

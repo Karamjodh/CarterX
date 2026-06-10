@@ -1,4 +1,5 @@
 import uuid
+import json
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -55,6 +56,8 @@ async def run_pipeline(
         await set_job_status(JobStatus.PROCESSING)
         await update_stage("preprocessing", "running")
         prep = run_preprocessing(file_bytes, content_type)
+        print(f"prep fields: {prep.__dict__.keys()}")
+        print(f"trend_data: {prep.trend_data}")
         await update_stage("preprocessing", "completed")
         await update_stage("segmentation", "running")
         seg = run_segmentation(prep.df_rfm)
@@ -72,17 +75,21 @@ async def run_pipeline(
         prompt = build_analysis_prompt(analysis_data, focus = "general")
         llm_result = await generate_report(prompt, model = llm_model)
         await update_stage("llm_report", "completed")
+        print(f"trend_data being saved: {prep.trend_data}")
+        trend_data_serialized = json.loads(json.dumps(prep.trend_data)) if prep.trend_data else None
+        print(f"trend_data being saved: {trend_data_serialized is not None}")
         insight = Insight(
-            id = str(uuid.uuid4()),
-            job_id = job_id,
-            summary = prep.summary,
-            cluster_profiles = seg.cluster_profiles,
-            association_rules = assoc.rules,
-            n_clusters = seg.n_clusters,
-            silhouette_score = seg.silhouette_score,
-            llm_report = llm_result["text"],
-            model_used = llm_result["model_used"],
-        )
+        id                = str(uuid.uuid4()),
+        job_id            = job_id,
+        summary           = prep.summary,
+        cluster_profiles  = seg.cluster_profiles,
+        association_rules = assoc.rules,
+        n_clusters        = seg.n_clusters,
+        silhouette_score  = seg.silhouette_score,
+        trend_data        = trend_data_serialized,
+        llm_report        = llm_result["text"],
+        model_used        = llm_result["model_used"],
+)
         db.add(insight)
         await set_job_status(JobStatus.COMPLETED)
         await db.commit()

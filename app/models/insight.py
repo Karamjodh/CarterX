@@ -22,6 +22,7 @@ class Insight(Base):
     n_clusters = Column(JSON) # instead of creating different table for cluster_profiles, association_rules etc...
     silhouette_score = Column(JSON)
     # LLM Report
+    trend_data = Column(JSON)
     llm_report = Column(Text, nullable = True)
     model_used = Column(String, nullable = True)
     created_at = Column(DateTime(timezone = True), server_default = func.now())

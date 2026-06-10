@@ -14,6 +14,7 @@ class InsightResponse(BaseModel):
     association_rules : Optional[list] = None
     n_clusters : Optional[int] = None
     silhouette_score : Optional[float] = None
+    trend_data : Optional[dict] = None
     llm_report : Optional[str] = None
     model_used : Optional[str] = None
     created_at : Optional[datetime] = None

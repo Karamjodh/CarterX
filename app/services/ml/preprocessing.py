@@ -53,6 +53,7 @@ class PreprocessingResult:
     df_basket : pd.DataFrame # transaction formatted for association rules 
     summary : dict # stats for dashboard
     column_map : dict # used columns mapped to canonical columns
+    trend_data : dict
 
 def run_preprocessing(file_bytes: bytes, content_type : str) -> PreprocessingResult:
     """
@@ -115,12 +116,14 @@ def run_preprocessing(file_bytes: bytes, content_type : str) -> PreprocessingRes
     df_rfm = _build_rfm(df)
     df_basket = _build_basket(df)
     summary = _build_summary(df, rows_removed)
+    trend_data = compute_trend_data(df)
     return PreprocessingResult(
         df_clean = df,
         df_rfm = df_rfm,
         df_basket = df_basket,
         summary = summary,
         column_map = column_map,
+        trend_data = trend_data,
     )
 # Private Helpers
 def _load_file(file_bytes: bytes, content_type: str) -> pd.DataFrame:
@@ -268,3 +271,47 @@ def _build_summary(df : pd.DataFrame, rows_removed : int) -> dict:
         summary["top_categories"] = top_cats
 
     return summary
+
+def compute_trend_data(df:pd.DataFrame)-> dict:
+    """Computes monthly revenue trends for the sales chart.
+
+    Returns a dict with:
+    - monthly_revenue:  [{month: "2023-01", revenue: 12500.0}, ...]
+    - category_monthly: {category: [{month, revenue}, ...]}
+    - top_products:     [{name, total_revenue, total_quantity}, ...]
+    """
+    df.copy()
+    df["month"] = df["date"].dt.to_period("M").astype(str)
+    monthly = (
+        df.groupby("month")["revenue"].sum().reset_index().rename(columns = {"revenue" : "total_revenue"}).sort_values("month")
+    )
+    monthly_revenue = monthly.to_dict(orient = "records")
+    category_monthly = {}
+    if 'category' in df.columns:
+        cat_monthly = (
+            df.groupby(["category", "month"])["revenue"].sum().round(2).reset_index().sort_values("month")
+        )
+        for cat in cat_monthly["category"].unique():
+            cat_data = cat_monthly[cat_monthly["category"] == cat]
+            category_monthly[cat] = cat_data[["month","revenue"]].to_dict(orient = "records")
+    if "product_name" in df.columns:
+        top_products = (
+            df.groupby("product_name").agg(total_revenue = ("revenue", "sum"),
+                                           total_quantity = ("quantity", "sum"),
+                                           ).round(2).sort_values("total_revenue", ascending = False).head(10).reset_index().to_dict(orient = "records")
+        )
+    else:
+        top_products = []
+    monthly_vals = monthly["total_revenue"].tolist()
+    if len(monthly_vals)>=2:
+        last_month = monthly_vals[-1]
+        prev_month = monthly_vals[-2]
+        mom_growth = round((last_month - prev_month) / prev_month * 100, 1) if prev_month > 0 else 0
+    else:
+        mom_growth = 0
+    return {
+        "monthly_revenue" : monthly_revenue,
+        "category_monthly" : category_monthly,
+        "top_products" : top_products,
+        "mom_growth_pct" : mom_growth,
+    }

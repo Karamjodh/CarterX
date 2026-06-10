@@ -1,25 +1,34 @@
 import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getInsights } from '../services/api'
-import {
-  PieChart, Pie, Cell, Tooltip, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer
-} from 'recharts'
+import VisualizationsTab from './dashboard/VisualizationsTab'
+import ReportTab         from './dashboard/ReportTab'
+import RulesTab          from './dashboard/RulesTab'
+import ClustersTab       from './dashboard/ClustersTab'
+import StatsTab          from './dashboard/StatsTab'
 
-const COLORS = ['#7F77DD', '#1D9E75', '#D85A30', '#BA7517', '#185FA5']
+const TABS = [
+  { id:'visualizations', label:'Visualizations' },
+  { id:'report',         label:'LLM Report'     },
+  { id:'rules',          label:'Rules'          },
+  { id:'clusters',       label:'Clusters'       },
+  { id:'stats',          label:'Stats'          },
+]
 
 export default function DashboardPage() {
-  const { jobId }         = useParams()
-  const [insights, setInsights] = useState(null)
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState(null)
+  const { jobId }                   = useParams()
+  const navigate                    = useNavigate()
+  const [insights,  setInsights]    = useState(null)
+  const [loading,   setLoading]     = useState(true)
+  const [error,     setError]       = useState(null)
+  const [activeTab, setActiveTab]   = useState('visualizations')
 
   useEffect(() => {
     const fetchInsights = async () => {
       try {
-        const response = await getInsights(jobId)
-        setInsights(response.data)
-      } catch (err) {
+        const res = await getInsights(jobId)
+        setInsights(res.data)
+      } catch (e) {
         setError('Could not load insights.')
       } finally {
         setLoading(false)
@@ -32,145 +41,82 @@ export default function DashboardPage() {
   if (error)   return <div style={styles.center}>{error}</div>
   if (!insights) return null
 
-  // Format segments for pie chart
-  const segmentData = (insights.cluster_profiles || []).map(p => ({
-    name:  p.label,
-    value: p.size,
-  }))
-
-  // Format top rules for bar chart
-  const rulesData = (insights.association_rules || [])
-    .slice(0, 8)
-    .map(r => ({
-      rule:       `${r.antecedents.join('+')} → ${r.consequents.join('+')}`,
-      lift:       r.lift,
-      confidence: Math.round(r.confidence * 100),
-    }))
+  const s = insights.summary || {}
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>Customer Insights</h1>
-      <p style={styles.subtitle}>
-        {insights.summary?.total_customers} customers ·{' '}
-        {insights.summary?.total_transactions} transactions ·{' '}
-        ${insights.summary?.total_revenue?.toLocaleString()} revenue
-      </p>
-
-      {/* Summary cards */}
-      <div style={styles.cardRow}>
-        <div style={styles.card}>
-          <p style={styles.cardLabel}>Customers</p>
-          <p style={styles.cardValue}>{insights.summary?.total_customers}</p>
+      <div style={styles.topbar}>
+        <div>
+          <span style={styles.logo}>CarterX</span>
+          <span style={styles.badge}>{insights.job_id?.slice(0,8)}...</span>
         </div>
-        <div style={styles.card}>
-          <p style={styles.cardLabel}>Avg Order Value</p>
-          <p style={styles.cardValue}>${insights.summary?.avg_order_value}</p>
+        <div style={styles.meta}>
+          {s.total_customers} customers · {s.total_transactions?.toLocaleString()} transactions · ${s.total_revenue?.toLocaleString()} revenue
         </div>
-        <div style={styles.card}>
-          <p style={styles.cardLabel}>Segments Found</p>
-          <p style={styles.cardValue}>{insights.n_clusters}</p>
-        </div>
-        <div style={styles.card}>
-          <p style={styles.cardLabel}>Rules Found</p>
-          <p style={styles.cardValue}>{insights.association_rules?.length}</p>
-        </div>
+        <button onClick={() => navigate('/')} style={styles.newBtn}>
+          New upload
+        </button>
       </div>
 
-      {/* Segments pie chart */}
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Customer Segments</h2>
-        <ResponsiveContainer width="100%" height={300}>
-          <PieChart>
-            <Pie
-              data={segmentData}
-              cx="50%"
-              cy="50%"
-              outerRadius={100}
-              dataKey="value"
-              label={({ name, percent }) =>
-                `${name} ${(percent * 100).toFixed(0)}%`
-              }
-            >
-              {segmentData.map((_, index) => (
-                <Cell key={index} fill={COLORS[index % COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
+      <div style={styles.summaryCards}>
+        {[
+          ['Total Revenue',  `$${(s.total_revenue/1e6).toFixed(2)}M`, 'total'],
+          ['Customers',       s.total_customers,                       'unique'],
+          ['Avg Order',      `$${s.avg_order_value}`,                 'per transaction'],
+          ['Segments',        insights.n_clusters,                     'found'],
+          ['Rules',           insights.association_rules?.length,      'patterns'],
+          ['Silhouette',      insights.silhouette_score,               'cluster quality'],
+        ].map(([label, val, sub]) => (
+          <div key={label} style={styles.card}>
+            <div style={styles.cardLabel}>{label}</div>
+            <div style={styles.cardVal}>{val}</div>
+            <div style={styles.cardSub}>{sub}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Association rules bar chart */}
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Top Purchase Patterns (Lift Score)</h2>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={rulesData} layout="vertical"
-            margin={{ left: 160, right: 20, top: 5, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" />
-            <YAxis type="category" dataKey="rule" width={150}
-              tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Bar dataKey="lift" fill="#7F77DD" name="Lift Score" />
-          </BarChart>
-        </ResponsiveContainer>
+      <div style={styles.tabs}>
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              ...styles.tab,
+              color:       activeTab === tab.id ? '#534AB7' : 'var(--color-text-secondary)',
+              borderBottom: activeTab === tab.id ? '2px solid #534AB7' : '2px solid transparent',
+              fontWeight:  activeTab === tab.id ? 500 : 400,
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* LLM Report */}
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>AI Strategy Report</h2>
-        <p style={styles.modelBadge}>Generated by {insights.model_used}</p>
-        <div style={styles.reportBox}>
-          {insights.llm_report?.split('\n').map((line, i) => (
-            <p key={i} style={{
-              ...styles.reportLine,
-              fontWeight: line.startsWith('##') ? '600' : '400',
-              fontSize:   line.startsWith('##') ? '17px' : '15px',
-              marginTop:  line.startsWith('##') ? '20px' : '4px',
-            }}>
-              {line.replace(/^##\s*/, '').replace(/\*\*/g, '')}
-            </p>
-          ))}
-        </div>
+      <div style={styles.content}>
+        {activeTab === 'visualizations' && <VisualizationsTab insights={insights} />}
+        {activeTab === 'report'         && <ReportTab         insights={insights} jobId={jobId} />}
+        {activeTab === 'rules'          && <RulesTab          insights={insights} />}
+        {activeTab === 'clusters'       && <ClustersTab       insights={insights} />}
+        {activeTab === 'stats'          && <StatsTab          insights={insights} />}
       </div>
     </div>
   )
 }
 
 const styles = {
-  container: {
-    maxWidth: '900px',
-    margin: '0 auto',
-    padding: '40px 24px',
-    fontFamily: 'system-ui, sans-serif',
-  },
-  center: {
-    textAlign: 'center',
-    padding: '80px',
-    color: '#666',
-    fontFamily: 'system-ui, sans-serif',
-  },
-  title: { fontSize: '28px', fontWeight: '600', color: '#1a1a1a', marginBottom: '8px' },
-  subtitle: { fontSize: '15px', color: '#666', marginBottom: '32px' },
-  cardRow: { display: 'flex', gap: '16px', marginBottom: '32px', flexWrap: 'wrap' },
-  card: {
-    flex: '1',
-    minWidth: '140px',
-    background: '#f4f4f4',
-    borderRadius: '10px',
-    padding: '16px',
-  },
-  cardLabel: { fontSize: '13px', color: '#666', margin: '0 0 6px' },
-  cardValue: { fontSize: '24px', fontWeight: '600', color: '#1a1a1a', margin: 0 },
-  section: { marginBottom: '40px' },
-  sectionTitle: { fontSize: '18px', fontWeight: '500', marginBottom: '16px', color: '#1a1a1a' },
-  modelBadge: { fontSize: '13px', color: '#7F77DD', marginBottom: '12px' },
-  reportBox: {
-    background: '#f9f9f9',
-    borderRadius: '10px',
-    padding: '24px',
-    lineHeight: '1.7',
-  },
-  reportLine: { margin: '2px 0', color: '#333' },
+  container:    { maxWidth:960, margin:'0 auto', padding:'2rem 1.5rem', fontFamily:'system-ui, sans-serif' },
+  center:       { textAlign:'center', padding:80, color:'var(--color-text-secondary)', fontFamily:'system-ui, sans-serif' },
+  topbar:       { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' },
+  logo:         { fontSize:20, fontWeight:500, color:'var(--color-text-primary)' },
+  badge:        { fontSize:11, background:'#EEEDFE', color:'#534AB7', padding:'2px 8px', borderRadius:999, marginLeft:8, fontWeight:500 },
+  meta:         { fontSize:13, color:'var(--color-text-secondary)' },
+  newBtn:       { fontSize:13, padding:'6px 14px', background:'var(--color-background-secondary)', border:'0.5px solid var(--color-border-secondary)', borderRadius:'var(--border-radius-md)', cursor:'pointer', color:'var(--color-text-primary)' },
+  summaryCards: { display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:10, marginBottom:'1.5rem' },
+  card:         { background:'var(--color-background-secondary)', borderRadius:'var(--border-radius-md)', padding:'0.75rem 1rem' },
+  cardLabel:    { fontSize:11, color:'var(--color-text-secondary)', marginBottom:4 },
+  cardVal:      { fontSize:18, fontWeight:500, color:'var(--color-text-primary)' },
+  cardSub:      { fontSize:10, color:'var(--color-text-tertiary)', marginTop:2 },
+  tabs:         { display:'flex', gap:2, borderBottom:'0.5px solid var(--color-border-tertiary)', marginBottom:'1.5rem' },
+  tab:          { padding:'8px 16px', fontSize:13, background:'none', border:'none', borderBottom:'2px solid transparent', cursor:'pointer', marginBottom:'-0.5px' },
+  content:      {},
 }

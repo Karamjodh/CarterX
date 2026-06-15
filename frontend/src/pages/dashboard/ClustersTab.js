@@ -1,62 +1,72 @@
 const COLORS = ['#7F77DD','#1D9E75','#D85A30','#BA7517','#185FA5']
-const BG     = ['#EEEDFE','#E1F5EE','#FAECE7','#FAEEDA','#E6F1FB']
+const LIGHTS  = ['#EEEDFE','#E1F5EE','#FAECE7','#FAEEDA','#E6F1FB']
 
 export default function ClustersTab({ insights }) {
   const clusters = insights.cluster_profiles || []
-  const total    = clusters.reduce((s, c) => s + c.size, 0)
 
   return (
     <div>
-      <div style={styles.grid}>
+      <div style={S.grid}>
         {clusters.map((c, i) => (
-          <div key={c.cluster_id} style={{...styles.card, borderTop:`3px solid ${COLORS[i % COLORS.length]}`}}>
-            <div style={{...styles.ring, background:BG[i % BG.length], color:COLORS[i % COLORS.length]}}>
+          <div key={c.cluster_id} style={{
+            ...S.card,
+            borderTop: `3px solid ${COLORS[i % COLORS.length]}`
+          }}>
+            <div style={{
+              ...S.ring,
+              background: LIGHTS[i % LIGHTS.length],
+              color:      COLORS[i % COLORS.length],
+            }}>
               {c.pct_of_customers}%
             </div>
-            <div style={styles.label}>{c.label}</div>
-            <div style={styles.size}>{c.size} customers</div>
-            <div style={styles.divider} />
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>Avg spend</span>
-              <span style={styles.metaVal}>${c.avg_monetary.toLocaleString()}</span>
-            </div>
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>Last bought</span>
-              <span style={styles.metaVal}>{c.avg_recency_days}d ago</span>
-            </div>
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>Frequency</span>
-              <span style={styles.metaVal}>{c.avg_frequency}x</span>
-            </div>
-            <div style={styles.barWrap}>
-              <div style={{...styles.bar, width:`${c.pct_of_customers}%`, background:COLORS[i % COLORS.length]}} />
+            <div style={S.clusterName}>{c.label}</div>
+            <div style={S.clusterSize}>{c.size} customers</div>
+            <div style={S.divider} />
+            {[
+              ['Avg spend',    `$${c.avg_monetary.toLocaleString()}`],
+              ['Last bought',  `${c.avg_recency_days}d ago`],
+              ['Frequency',    `${c.avg_frequency}× per period`],
+            ].map(([k,v]) => (
+              <div key={k} style={S.metaRow}>
+                <span style={S.metaKey}>{k}</span>
+                <span style={S.metaVal}>{v}</span>
+              </div>
+            ))}
+            <div style={{...S.barTrack, marginTop:12}}>
+              <div style={{
+                height:'100%',
+                width:`${c.pct_of_customers}%`,
+                background: COLORS[i % COLORS.length],
+                borderRadius:4,
+              }} />
             </div>
           </div>
         ))}
       </div>
 
-      <div style={styles.section}>
-        <div style={styles.sectionTitle}>Segment comparison</div>
-        <div style={styles.compareGrid}>
-          {['avg_monetary','avg_frequency','avg_recency_days'].map(metric => {
-            const max = Math.max(...clusters.map(c => c[metric]))
-            const labels = { avg_monetary:'Avg spend ($)', avg_frequency:'Buy frequency', avg_recency_days:'Recency (days)' }
+      <div style={S.section}>
+        <div style={S.secTitle}>Segment comparison</div>
+        <div style={S.compareGrid}>
+          {[
+            { key:'avg_monetary',    label:'Average spend',    fmt: v => `$${v.toLocaleString()}` },
+            { key:'avg_frequency',   label:'Purchase frequency', fmt: v => `${v}×` },
+            { key:'avg_recency_days',label:'Days since purchase', fmt: v => `${v}d` },
+          ].map(metric => {
+            const max = Math.max(...clusters.map(c => c[metric.key]))
             return (
-              <div key={metric}>
-                <div style={styles.metricLabel}>{labels[metric]}</div>
+              <div key={metric.key}>
+                <div style={S.metricLabel}>{metric.label}</div>
                 {clusters.map((c,i) => (
-                  <div key={c.cluster_id} style={{marginBottom:8}}>
+                  <div key={c.cluster_id} style={{marginBottom:10}}>
                     <div style={{display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:3}}>
-                      <span style={{color:'var(--color-text-secondary)'}}>{c.label}</span>
-                      <span style={{fontWeight:500, color:'var(--color-text-primary)'}}>
-                        {metric === 'avg_monetary' ? `$${c[metric].toLocaleString()}` : c[metric]}
-                      </span>
+                      <span style={{color:'#5F5E5A'}}>{c.label}</span>
+                      <span style={{fontWeight:500}}>{metric.fmt(c[metric.key])}</span>
                     </div>
-                    <div style={styles.trackWrap}>
+                    <div style={S.barTrack}>
                       <div style={{
                         height:'100%',
-                        width:`${(c[metric]/max)*100}%`,
-                        background:COLORS[i % COLORS.length],
+                        width:`${(c[metric.key]/max)*100}%`,
+                        background: COLORS[i % COLORS.length],
                         borderRadius:4,
                       }} />
                     </div>
@@ -71,21 +81,19 @@ export default function ClustersTab({ insights }) {
   )
 }
 
-const styles = {
-  grid:        { display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:12, marginBottom:'1.5rem' },
-  card:        { background:'var(--color-background-primary)', border:'0.5px solid var(--color-border-tertiary)', borderRadius:'var(--border-radius-lg)', padding:'1.25rem' },
-  ring:        { width:56, height:56, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:500, marginBottom:12 },
-  label:       { fontSize:15, fontWeight:500, color:'var(--color-text-primary)', marginBottom:2 },
-  size:        { fontSize:12, color:'var(--color-text-secondary)', marginBottom:12 },
-  divider:     { height:'0.5px', background:'var(--color-border-tertiary)', marginBottom:12 },
+const S = {
+  grid:        { display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:12, marginBottom:12 },
+  card:        { background:'white', border:'0.5px solid #E8E6DF', borderRadius:12, padding:'1.25rem' },
+  ring:        { width:52, height:52, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:500, marginBottom:12 },
+  clusterName: { fontSize:16, fontFamily:"'Instrument Serif', serif", color:'#1a1a1a', marginBottom:2 },
+  clusterSize: { fontSize:12, color:'#888780', marginBottom:12 },
+  divider:     { height:'0.5px', background:'#E8E6DF', marginBottom:12 },
   metaRow:     { display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:6 },
-  metaLabel:   { color:'var(--color-text-secondary)' },
-  metaVal:     { fontWeight:500, color:'var(--color-text-primary)' },
-  barWrap:     { height:4, background:'var(--color-background-secondary)', borderRadius:4, marginTop:12 },
-  bar:         { height:'100%', borderRadius:4 },
-  section:     { background:'var(--color-background-primary)', border:'0.5px solid var(--color-border-tertiary)', borderRadius:'var(--border-radius-lg)', padding:'1.25rem' },
-  sectionTitle:{ fontSize:14, fontWeight:500, color:'var(--color-text-primary)', marginBottom:'1rem' },
+  metaKey:     { color:'#888780' },
+  metaVal:     { fontWeight:500, color:'#1a1a1a' },
+  barTrack:    { height:6, background:'#F1EFE8', borderRadius:4, overflow:'hidden' },
+  section:     { background:'white', border:'0.5px solid #E8E6DF', borderRadius:12, padding:'1.25rem' },
+  secTitle:    { fontSize:16, fontFamily:"'Instrument Serif', serif", color:'#1a1a1a', marginBottom:16 },
   compareGrid: { display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:24 },
-  metricLabel: { fontSize:12, fontWeight:500, color:'var(--color-text-secondary)', marginBottom:12 },
-  trackWrap:   { height:8, background:'var(--color-background-secondary)', borderRadius:4 },
+  metricLabel: { fontSize:12, fontWeight:500, color:'#5F5E5A', marginBottom:12 },
 }

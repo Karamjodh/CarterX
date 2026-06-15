@@ -6,117 +6,189 @@ import ReportTab         from './dashboard/ReportTab'
 import RulesTab          from './dashboard/RulesTab'
 import ClustersTab       from './dashboard/ClustersTab'
 import StatsTab          from './dashboard/StatsTab'
+import SimulationTab     from './dashboard/SimulationTab'
 
-const TABS = [
-  { id:'visualizations', label:'Visualizations' },
-  { id:'report',         label:'LLM Report'     },
-  { id:'rules',          label:'Rules'          },
-  { id:'clusters',       label:'Clusters'       },
-  { id:'stats',          label:'Stats'          },
+const NAV = [
+  { id: 'visualizations', icon: '▦', label: 'Visualizations',  sub: 'Charts & trends'     },
+  { id: 'clusters',       icon: '◉', label: 'Segments',         sub: 'Customer groups'     },
+  { id: 'simulation',     icon: '⟳', label: 'Simulation',       sub: 'What-if analysis'    },
+  { id: 'rules',          icon: '⇌', label: 'Rules',            sub: 'Purchase patterns'   },
+  { id: 'report',         icon: '✦', label: 'AI Report',        sub: 'Strategy & insights' },
+  { id: 'stats',          icon: '≡', label: 'Statistics',       sub: 'Full data breakdown' },
 ]
 
 export default function DashboardPage() {
-  const { jobId }                   = useParams()
-  const navigate                    = useNavigate()
-  const [insights,  setInsights]    = useState(null)
-  const [loading,   setLoading]     = useState(true)
-  const [error,     setError]       = useState(null)
-  const [activeTab, setActiveTab]   = useState('visualizations')
+  const { jobId }                 = useParams()
+  const navigate                  = useNavigate()
+  const [insights,  setInsights]  = useState(null)
+  const [loading,   setLoading]   = useState(true)
+  const [error,     setError]     = useState(null)
+  const [active,    setActive]    = useState('visualizations')
+  const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
-    const fetchInsights = async () => {
-      try {
-        const res = await getInsights(jobId)
-        setInsights(res.data)
-      } catch (e) {
-        setError('Could not load insights.')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchInsights()
+    getInsights(jobId)
+      .then(r => setInsights(r.data))
+      .catch(() => setError('Could not load insights.'))
+      .finally(() => setLoading(false))
   }, [jobId])
 
-  if (loading) return <div style={styles.center}>Loading insights...</div>
-  if (error)   return <div style={styles.center}>{error}</div>
+  if (loading) return <LoadingScreen />
+  if (error)   return <ErrorScreen message={error} />
   if (!insights) return null
 
   const s = insights.summary || {}
 
+  const tabs = {
+    visualizations: <VisualizationsTab insights={insights} />,
+    clusters:       <ClustersTab       insights={insights} />,
+    simulation:     <SimulationTab     insights={insights} />,
+    rules:          <RulesTab          insights={insights} />,
+    report:         <ReportTab         insights={insights} jobId={jobId} />,
+    stats:          <StatsTab          insights={insights} />,
+  }
+
   return (
-    <div style={styles.container}>
-      <div style={styles.topbar}>
-        <div>
-          <span style={styles.logo}>CarterX</span>
-          <span style={styles.badge}>{insights.job_id?.slice(0,8)}...</span>
-        </div>
-        <div style={styles.meta}>
-          {s.total_customers} customers · {s.total_transactions?.toLocaleString()} transactions · ${s.total_revenue?.toLocaleString()} revenue
-        </div>
-        <button onClick={() => navigate('/')} style={styles.newBtn}>
-          New upload
-        </button>
-      </div>
+    <div style={S.shell}>
 
-      <div style={styles.summaryCards}>
-        {[
-          ['Total Revenue',  `$${(s.total_revenue/1e6).toFixed(2)}M`, 'total'],
-          ['Customers',       s.total_customers,                       'unique'],
-          ['Avg Order',      `$${s.avg_order_value}`,                 'per transaction'],
-          ['Segments',        insights.n_clusters,                     'found'],
-          ['Rules',           insights.association_rules?.length,      'patterns'],
-          ['Silhouette',      insights.silhouette_score,               'cluster quality'],
-        ].map(([label, val, sub]) => (
-          <div key={label} style={styles.card}>
-            <div style={styles.cardLabel}>{label}</div>
-            <div style={styles.cardVal}>{val}</div>
-            <div style={styles.cardSub}>{sub}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={styles.tabs}>
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            style={{
-              ...styles.tab,
-              color:       activeTab === tab.id ? '#534AB7' : 'var(--color-text-secondary)',
-              borderBottom: activeTab === tab.id ? '2px solid #534AB7' : '2px solid transparent',
-              fontWeight:  activeTab === tab.id ? 500 : 400,
-            }}
-          >
-            {tab.label}
+      {/* ── Sidebar ── */}
+      <aside style={{...S.sidebar, width: collapsed ? 64 : 220}}>
+        <div style={S.sidebarTop}>
+          {!collapsed && (
+            <div style={S.brand}>
+              <span style={S.brandName}>CarterX</span>
+              <span style={S.brandTag}>AI Analytics</span>
+            </div>
+          )}
+          <button onClick={() => setCollapsed(c => !c)} style={S.collapseBtn}>
+            {collapsed ? '→' : '←'}
           </button>
-        ))}
-      </div>
+        </div>
 
-      <div style={styles.content}>
-        {activeTab === 'visualizations' && <VisualizationsTab insights={insights} />}
-        {activeTab === 'report'         && <ReportTab         insights={insights} jobId={jobId} />}
-        {activeTab === 'rules'          && <RulesTab          insights={insights} />}
-        {activeTab === 'clusters'       && <ClustersTab       insights={insights} />}
-        {activeTab === 'stats'          && <StatsTab          insights={insights} />}
+        <nav style={S.nav}>
+          {NAV.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setActive(item.id)}
+              style={{
+                ...S.navItem,
+                background: active === item.id ? '#EEEDFE' : 'transparent',
+                color:      active === item.id ? '#534AB7' : '#5F5E5A',
+              }}
+              title={collapsed ? item.label : ''}
+            >
+              <span style={{
+                ...S.navIcon,
+                color: active === item.id ? '#534AB7' : '#888780',
+              }}>
+                {item.icon}
+              </span>
+              {!collapsed && (
+                <span style={S.navText}>
+                  <span style={S.navLabel}>{item.label}</span>
+                  <span style={S.navSub}>{item.sub}</span>
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {!collapsed && (
+          <div style={S.sidebarBottom}>
+            <button onClick={() => navigate('/')} style={S.newUploadBtn}>
+              + New upload
+            </button>
+            <div style={S.sidebarMeta}>
+              <div style={S.metaLine}>{s.total_customers} customers</div>
+              <div style={S.metaLine}>${(s.total_revenue/1e6).toFixed(2)}M revenue</div>
+            </div>
+          </div>
+        )}
+      </aside>
+
+      {/* ── Main content ── */}
+      <main style={S.main}>
+
+        {/* ── Top header ── */}
+        <header style={S.header}>
+          <div>
+            <h1 style={S.pageTitle}>
+              {NAV.find(n => n.id === active)?.label}
+            </h1>
+            <p style={S.pageSubtitle}>
+              {s.date_start} → {s.date_end} &nbsp;·&nbsp;
+              {s.total_transactions?.toLocaleString()} transactions
+            </p>
+          </div>
+          <div style={S.headerKPIs}>
+            {[
+              ['Revenue',    `$${(s.total_revenue/1e6).toFixed(2)}M`],
+              ['Customers',  s.total_customers],
+              ['Segments',   insights.n_clusters],
+              ['Rules',      insights.association_rules?.length],
+            ].map(([label, val]) => (
+              <div key={label} style={S.kpi}>
+                <div style={S.kpiVal}>{val}</div>
+                <div style={S.kpiLabel}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </header>
+
+        {/* ── Tab content ── */}
+        <div style={S.content}>
+          {tabs[active]}
+        </div>
+      </main>
+    </div>
+  )
+}
+
+function LoadingScreen() {
+  return (
+    <div style={{display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16, fontFamily:"'Inter', sans-serif"}}>
+      <div style={{fontSize:28, fontFamily:"'Instrument Serif', serif", color:'#1a1a1a'}}>CarterX</div>
+      <div style={{fontSize:13, color:'#888780'}}>Loading your insights...</div>
+    </div>
+  )
+}
+
+function ErrorScreen({ message }) {
+  return (
+    <div style={{display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', fontFamily:"'Inter', sans-serif"}}>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:20, fontFamily:"'Instrument Serif', serif", marginBottom:8}}>Something went wrong</div>
+        <div style={{fontSize:13, color:'#888780'}}>{message}</div>
       </div>
     </div>
   )
 }
 
-const styles = {
-  container:    { maxWidth:960, margin:'0 auto', padding:'2rem 1.5rem', fontFamily:'system-ui, sans-serif' },
-  center:       { textAlign:'center', padding:80, color:'var(--color-text-secondary)', fontFamily:'system-ui, sans-serif' },
-  topbar:       { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' },
-  logo:         { fontSize:20, fontWeight:500, color:'var(--color-text-primary)' },
-  badge:        { fontSize:11, background:'#EEEDFE', color:'#534AB7', padding:'2px 8px', borderRadius:999, marginLeft:8, fontWeight:500 },
-  meta:         { fontSize:13, color:'var(--color-text-secondary)' },
-  newBtn:       { fontSize:13, padding:'6px 14px', background:'var(--color-background-secondary)', border:'0.5px solid var(--color-border-secondary)', borderRadius:'var(--border-radius-md)', cursor:'pointer', color:'var(--color-text-primary)' },
-  summaryCards: { display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:10, marginBottom:'1.5rem' },
-  card:         { background:'var(--color-background-secondary)', borderRadius:'var(--border-radius-md)', padding:'0.75rem 1rem' },
-  cardLabel:    { fontSize:11, color:'var(--color-text-secondary)', marginBottom:4 },
-  cardVal:      { fontSize:18, fontWeight:500, color:'var(--color-text-primary)' },
-  cardSub:      { fontSize:10, color:'var(--color-text-tertiary)', marginTop:2 },
-  tabs:         { display:'flex', gap:2, borderBottom:'0.5px solid var(--color-border-tertiary)', marginBottom:'1.5rem' },
-  tab:          { padding:'8px 16px', fontSize:13, background:'none', border:'none', borderBottom:'2px solid transparent', cursor:'pointer', marginBottom:'-0.5px' },
-  content:      {},
+const S = {
+  shell:        { display:'flex', height:'100vh', overflow:'hidden', background:'#F7F6F3' },
+  sidebar:      { display:'flex', flexDirection:'column', background:'white', borderRight:'0.5px solid #E8E6DF', transition:'width 0.2s ease', overflow:'hidden', flexShrink:0 },
+  sidebarTop:   { display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 16px 16px', borderBottom:'0.5px solid #E8E6DF' },
+  brand:        { display:'flex', flexDirection:'column' },
+  brandName:    { fontSize:18, fontFamily:"'Instrument Serif', serif", color:'#1a1a1a', lineHeight:1.2 },
+  brandTag:     { fontSize:10, color:'#888780', letterSpacing:'0.06em', textTransform:'uppercase' },
+  collapseBtn:  { background:'#F7F6F3', border:'0.5px solid #E8E6DF', borderRadius:6, width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, color:'#888780', cursor:'pointer', flexShrink:0 },
+  nav:          { flex:1, padding:'12px 8px', display:'flex', flexDirection:'column', gap:2, overflowY:'auto' },
+  navItem:      { display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer', transition:'all 0.15s', textAlign:'left', width:'100%' },
+  navIcon:      { fontSize:16, width:20, textAlign:'center', flexShrink:0, lineHeight:1 },
+  navText:      { display:'flex', flexDirection:'column', minWidth:0 },
+  navLabel:     { fontSize:13, fontWeight:500, color:'inherit', whiteSpace:'nowrap' },
+  navSub:       { fontSize:11, color:'#B4B2A9', whiteSpace:'nowrap' },
+  sidebarBottom:{ padding:'12px 16px', borderTop:'0.5px solid #E8E6DF' },
+  newUploadBtn: { width:'100%', padding:'8px', background:'#EEEDFE', color:'#534AB7', border:'none', borderRadius:8, fontSize:13, fontWeight:500, cursor:'pointer', marginBottom:12 },
+  sidebarMeta:  { display:'flex', flexDirection:'column', gap:3 },
+  metaLine:     { fontSize:11, color:'#888780' },
+  main:         { flex:1, display:'flex', flexDirection:'column', overflow:'hidden' },
+  header:       { background:'white', borderBottom:'0.5px solid #E8E6DF', padding:'20px 32px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 },
+  pageTitle:    { fontSize:24, fontFamily:"'Instrument Serif', serif", color:'#1a1a1a', marginBottom:2 },
+  pageSubtitle: { fontSize:12, color:'#888780' },
+  headerKPIs:   { display:'flex', gap:24 },
+  kpi:          { textAlign:'right' },
+  kpiVal:       { fontSize:18, fontWeight:500, color:'#1a1a1a' },
+  kpiLabel:     { fontSize:11, color:'#888780' },
+  content:      { flex:1, overflowY:'auto', padding:'28px 32px' },
 }

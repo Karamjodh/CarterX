@@ -20,6 +20,7 @@ class Insight(Base):
     cluster_profiles = Column(JSON) # JSON format as we know has nested dictionary structure so it will help in storing
     association_rules = Column(JSON) # the multiple content values of each column attribute within a single table 
     n_clusters = Column(JSON) # instead of creating different table for cluster_profiles, association_rules etc...
+    tsne_data = Column(JSON)    # t-SNE 2D embedding points
     silhouette_score = Column(JSON)
     # LLM Report
     trend_data = Column(JSON)

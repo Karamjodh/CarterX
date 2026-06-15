@@ -13,6 +13,7 @@ class InsightResponse(BaseModel):
     cluster_profiles : Optional[list] = None
     association_rules : Optional[list] = None
     n_clusters : Optional[int] = None
+    tsne_data: Optional[list] = None
     silhouette_score : Optional[float] = None
     trend_data : Optional[dict] = None
     llm_report : Optional[str] = None

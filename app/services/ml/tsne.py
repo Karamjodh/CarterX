@@ -90,9 +90,9 @@ def run_tsne(
             "cluster_id":  int(row["cluster"]),
             "label":       label_map.get(int(row["cluster"]), f"Segment {int(row['cluster'])+1}"),
             "customer_id": str(row["customer_id"]),
-            "monetary":    round(float(row["monetary"]), 2),
-            "recency":     int(row["recency"]),
-            "frequency":   int(row["frequency"]),
+            "monetary":    round(float(row["monetary"]) if pd.notna(row["monetary"]) else 0.0, 2),
+            "recency":     int(row["recency"])   if pd.notna(row["recency"])   else 0,
+            "frequency":   int(row["frequency"]) if pd.notna(row["frequency"]) else 0,
         })
 
     return TSNEResult(

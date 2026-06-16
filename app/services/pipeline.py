@@ -67,12 +67,13 @@ async def run_pipeline(
         await update_stage("llm_report", "running")
 
         analysis_data = {
-            "summary":           prep.summary,
-            "segments":          seg.cluster_profiles,
-            "association_rules": assoc.rules,
-            "trend_data":        prep.trend_data,
-            "silhouette_score":  seg.silhouette_score,
-        }
+    "summary":           prep.summary,
+    "segments":          seg.cluster_profiles,
+    "association_rules": assoc.rules,
+    "trend_data":        prep.trend_data,
+    "silhouette_score":  seg.silhouette_score,
+    "dataset_type":      prep.dataset_type,   # ← NEW
+}
 
         prompt     = build_analysis_prompt(analysis_data, focus=focus)
         llm_result = await generate_report(prompt, model=llm_model)
@@ -92,6 +93,7 @@ async def run_pipeline(
             tsne_data         = tsne_data_serialized,  # ✅ ADDED
             llm_report        = llm_result["text"],
             model_used        = llm_result["model_used"],
+            dataset_type = prep.dataset_type,
         )
         db.add(insight)
         await set_job_status(JobStatus.COMPLETED)

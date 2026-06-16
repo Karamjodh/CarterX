@@ -6,7 +6,7 @@ from sklearn.metrics import silhouette_score
 
 @dataclass
 class SegmentationResult:
-    df_rfm_labelled:  pd.DataFrame   # ← add this
+    df_rfm_labelled:  pd.DataFrame   # ← needed for t-SNE
     n_clusters:       int
     silhouette_score: float
     cluster_profiles: list
@@ -36,7 +36,7 @@ def run_segmentation(df_rfm : pd.DataFrame) -> SegmentationResult:
     df_rfm["cluster"] = km_final.fit_predict(X)
     profiles = _build_profiles(df_rfm, best_k)
     return SegmentationResult(
-    df_rfm_labelled  = df_rfm,       # ← add this
+    df_rfm_labelled  = df_rfm,
     n_clusters       = best_k,
     silhouette_score = round(float(best_score), 4),
     cluster_profiles = profiles,

@@ -19,3 +19,4 @@ class InsightResponse(BaseModel):
     llm_report : Optional[str] = None
     model_used : Optional[str] = None
     created_at : Optional[datetime] = None
+    dataset_type: Optional[str] = None

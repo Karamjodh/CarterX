@@ -1,4 +1,6 @@
 def build_analysis_prompt(data: dict, focus: str = "general") -> str:
+    dataset_type = data.get("dataset_type", "transactional")
+    has_dates    = dataset_type == "transactional"
     focus_instructions = {
         "general":     "Provide a balanced set of recommendations covering the biggest opportunities.",
         "retention":   "Focus specifically on reducing churn and re-engaging customers who haven't bought recently.",
@@ -50,7 +52,7 @@ def build_analysis_prompt(data: dict, focus: str = "general") -> str:
 
     # ── Trend Data — NEW: actually pass revenue trends to LLM ─────────────
     trend = data.get("trend_data", {})
-    if trend and trend.get("monthly_revenue"):
+    if trend and trend.get("monthly_revenue") and has_dates:
         monthly = trend["monthly_revenue"]
         mom     = trend.get("mom_growth_pct", 0)
         top_products = trend.get("top_products", [])
@@ -78,6 +80,11 @@ def build_analysis_prompt(data: dict, focus: str = "general") -> str:
         if trend.get("category_monthly"):
             cats = list(trend["category_monthly"].keys())
             trend_section += f"\nCategories with monthly data: {', '.join(cats)}\n"
+    elif trend and trend.get("category_revenue"):
+    # Amazon-style: show category distribution instead
+        trend_section = "\n## Category Revenue Distribution\n"
+        for item in trend["category_revenue"][:5]:
+            trend_section += f"- **{item['category']}**: ${item['revenue']:,.2f}\n"
     else:
         trend_section = "\n## Revenue Trends\nNo trend data available.\n"
 

@@ -27,3 +27,4 @@ class Insight(Base):
     llm_report = Column(Text, nullable = True)
     model_used = Column(String, nullable = True)
     created_at = Column(DateTime(timezone = True), server_default = func.now())
+    dataset_type = Column(String, nullable=True)   # "transactional" | "review" | "catalog"

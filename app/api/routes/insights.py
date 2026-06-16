@@ -33,7 +33,7 @@ async def get_insights(job_id : str, db : AsyncSession = Depends(get_db)):
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(
             status_code = 400,
-            detail = f"Pipeline not completed yet. Current Status {job.status.values}" # if job not completed raises exception pipeline not completed
+            detail = f"Pipeline not completed yet. Current Status {job.status.value}" # if job not completed raises exception pipeline not completed
         )
     insight_result = await db.execute(
         select(Insight).where(Insight.job_id == job_id) # if completed fetches insight

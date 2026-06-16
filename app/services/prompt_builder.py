@@ -71,11 +71,16 @@ def build_analysis_prompt(data: dict, focus: str = "general") -> str:
         if top_products:
             trend_section += "\nTop products by revenue:\n"
             for p in top_products[:5]:
-                trend_section += (
-                    f"- {p['product_name']}: "
-                    f"${p['total_revenue']:,.2f} "
-                    f"({int(p['total_quantity'])} units)\n"
-                )
+                try:
+                    qty = int(p.get("total_quantity", p.get("Quantity", 0)) or 0)
+                except (ValueError, TypeError):
+                    qty = 0
+
+                    trend_section += (
+                        f"- {p.get('product_name', 'Unknown Product')}: "
+                        f"${float(p.get('total_revenue', 0)):,.2f} "
+                        f"({qty} units)\n"
+                    )
 
         if trend.get("category_monthly"):
             cats = list(trend["category_monthly"].keys())

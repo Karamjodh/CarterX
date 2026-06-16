@@ -5,6 +5,13 @@ import {
 
 const COLORS = ['#7F77DD','#1D9E75','#D85A30','#BA7517','#185FA5']
 
+function fmtY(v) {
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(0)}B`
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`
+  if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`
+  return `$${v}`
+}
+
 export default function VisualizationsTab({ insights }) {
   const trend      = insights.trend_data || {}
   const monthly    = trend.monthly_revenue || []
@@ -23,21 +30,23 @@ export default function VisualizationsTab({ insights }) {
         <div style={S.section}>
           <div style={S.secTitle}>{hasMonthly ? 'Monthly revenue' : 'Revenue by category'}</div>
           <div style={S.secSub}>{hasMonthly ? 'Full year trend' : 'Top categories by revenue'}</div>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={220}>
             <BarChart
               data={hasMonthly ? monthly : catRevenue}
-              margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+              margin={{ top: 8, right: 8, bottom: 20, left: 10 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#F1EFE8" vertical={false} />
               <XAxis
                 dataKey={hasMonthly ? 'month' : 'category'}
                 tick={{ fontSize: 9, fill: '#888780' }}
-                tickFormatter={v => v.length > 10 ? v.slice(0, 10) + '…' : v}
+                tickFormatter={v => v.length > 12 ? v.slice(0, 12) + '…' : v}
                 axisLine={false} tickLine={false}
+                interval={0}
               />
               <YAxis
                 tick={{ fontSize: 10, fill: '#888780' }} axisLine={false} tickLine={false}
-                tickFormatter={v => `$${(v / 1000).toFixed(0)}K`}
+                tickFormatter={fmtY}
+                width={55}
               />
               <Tooltip
                 contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }}
@@ -55,7 +64,7 @@ export default function VisualizationsTab({ insights }) {
         <div style={S.section}>
           <div style={S.secTitle}>Customer segments</div>
           <div style={S.secSub}>By size</div>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie data={segData} cx="50%" cy="50%" outerRadius={80} innerRadius={40}
                 dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
@@ -80,7 +89,7 @@ export default function VisualizationsTab({ insights }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#F1EFE8" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 10, fill: '#888780' }}
                 axisLine={false} tickLine={false}
-                tickFormatter={v => `$${(v / 1000).toFixed(0)}K`} />
+                tickFormatter={fmtY} />
               <YAxis type="category" dataKey="product_name"
                 tick={{ fontSize: 9, fill: '#5F5E5A' }} width={180}
                 axisLine={false} tickLine={false}

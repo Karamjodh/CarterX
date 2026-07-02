@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler
 from rapidfuzz import process, fuzz
 
 logger = logging.getLogger(__name__)
@@ -334,6 +334,49 @@ def _engineer_features(df: pd.DataFrame, dataset_type: str) -> pd.DataFrame:
     return df
 
 
+# ── RFM scaling ─────────────────────────────────────────────────────────────────
+def _scale_rfm_features(df_rfm: pd.DataFrame) -> pd.DataFrame:
+    """
+    Properly scales RFM features for clustering.
+
+    Steps:
+    1. Log-transform monetary and frequency (both are right-skewed in
+       almost all real-world retail/review data — a handful of customers
+       spend or transact far more than everyone else).
+    2. Use RobustScaler instead of StandardScaler — it scales using the
+       median and IQR rather than the mean and standard deviation, so a
+       few extreme outliers don't compress the rest of the distribution
+       into a tiny band near zero.
+    3. Recency is left un-logged — it's generally close to linear already
+       and log-transforming it tends to hurt rather than help.
+
+    Without this, StandardScaler alone tends to produce one giant
+    "everyone normal" cluster plus tiny clusters made up of nothing but
+    outliers — which is exactly the symptom of poorly separated clusters.
+    """
+    df_rfm = df_rfm.copy()
+
+    # log1p = log(1 + x) — handles zero values safely (log(0) is undefined)
+    monetary_log  = np.log1p(df_rfm["monetary"].clip(lower=0))
+    frequency_log = np.log1p(df_rfm["frequency"].clip(lower=0))
+    recency_raw   = df_rfm["recency"]
+
+    scaler = RobustScaler()
+    scaled = scaler.fit_transform(
+        pd.DataFrame({
+            "recency_raw":   recency_raw,
+            "frequency_log": frequency_log,
+            "monetary_log":  monetary_log,
+        })
+    )
+
+    df_rfm["recency_scaled"]   = scaled[:, 0]
+    df_rfm["frequency_scaled"] = scaled[:, 1]
+    df_rfm["monetary_scaled"]  = scaled[:, 2]
+
+    return df_rfm
+
+
 # ── RFM building ───────────────────────────────────────────────────────────────
 def _build_rfm(df: pd.DataFrame, dataset_type: str) -> pd.DataFrame:
     if dataset_type == "transactional":
@@ -358,10 +401,9 @@ def _build_rfm_transactional(df: pd.DataFrame) -> pd.DataFrame:
     df_rfm["recency"] = (snapshot_date - df_rfm["last_purchase_date"]).dt.days
     df_rfm.drop(columns=["last_purchase_date"], inplace=True)
 
-    scaler = StandardScaler()
-    df_rfm[["recency_scaled", "frequency_scaled", "monetary_scaled"]] = (
-        scaler.fit_transform(df_rfm[["recency", "frequency", "monetary"]])
-    )
+    # ── Log-transform + RobustScaler instead of plain StandardScaler ───────
+    df_rfm = _scale_rfm_features(df_rfm)
+
     return df_rfm
 
 
@@ -385,11 +427,13 @@ def _build_rfm_review(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df_rfm["recency"] = 50
 
-    scaler = StandardScaler()
-    rfm_matrix = df_rfm[["recency", "frequency", "monetary"]].fillna(0)
-    df_rfm[["recency_scaled", "frequency_scaled", "monetary_scaled"]] = (
-        scaler.fit_transform(rfm_matrix)
+    df_rfm[["recency", "frequency", "monetary"]] = (
+        df_rfm[["recency", "frequency", "monetary"]].fillna(0)
     )
+
+    # ── Log-transform + RobustScaler instead of plain StandardScaler ───────
+    df_rfm = _scale_rfm_features(df_rfm)
+
     return df_rfm
 
 

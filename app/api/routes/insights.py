@@ -42,6 +42,6 @@ async def get_insights(job_id : str, db : AsyncSession = Depends(get_db)):
     if not insight:
         raise HTTPException(
             status_code = 404,
-            detail = "Insight not found for this job." # if no insights raises exception of no insoght found
+            detail = "Insight not found for this job." # if no insights raises exception of no insight found
         )
     return insight

@@ -5,9 +5,9 @@ Chart.register(...registerables)
 const PALETTE = ['#7F77DD', '#1D9E75', '#D85A30', '#BA7517', '#185FA5', '#D4537E']
 
 function fmt(n) {
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`
-  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`
+  if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
+  if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`
+  if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(1)}K`
   return `$${Math.round(n).toLocaleString()}`
 }
 
@@ -66,18 +66,27 @@ export default function SimulationTab({ insights }) {
     })
   }
 
-  // Revenue chart — destroy on every re-run, recreate fresh
+  // Revenue timeline chart — zoomed Y-axis so the lift is visible,
+  // plus a filled "lift band" between the two lines that grows/shrinks
+  // visibly as the discount slider moves.
   useEffect(() => {
     const canvas = revenueChartRef.current
     if (!canvas) return
 
-    // Destroy any existing chart on this canvas
     if (revenueChart.current) {
       revenueChart.current.destroy()
       revenueChart.current = null
     }
 
     const { labels, baseData, simData } = buildTimelineData()
+
+    // Zoom the axis to the relevant band instead of starting at 0 —
+    // this is what makes small % differences visually obvious.
+    const allVals = [...baseData, ...simData]
+    const minVal  = Math.min(...allVals)
+    const maxVal  = Math.max(...allVals)
+    const pad     = (maxVal - minVal) * 0.15 || maxVal * 0.05
+
     revenueChart.current = new Chart(canvas, {
       type: 'line',
       data: {
@@ -98,8 +107,8 @@ export default function SimulationTab({ insights }) {
             label: 'With campaign',
             data: simData,
             borderColor: '#7F77DD',
-            backgroundColor: 'rgba(127,119,221,0.08)',
-            fill: true,
+            backgroundColor: 'rgba(127,119,221,0.12)',
+            fill: '-1',
             borderWidth: 2.5,
             pointRadius: 4,
             pointBackgroundColor: '#7F77DD',
@@ -120,12 +129,21 @@ export default function SimulationTab({ insights }) {
             titleColor: '#1a1a1a',
             bodyColor: '#5F5E5A',
             padding: 10,
-            callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}` },
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}`,
+              afterBody: items => {
+                if (items.length < 2) return ''
+                const diff = items[1].raw - items[0].raw
+                return `\nLift: ${diff >= 0 ? '+' : ''}${fmt(diff)}`
+              },
+            },
           },
         },
         scales: {
           x: { grid: { color: '#F1EFE8' }, ticks: { color: '#888780', font: { size: 11 } } },
           y: {
+            min: Math.max(0, minVal - pad),
+            max: maxVal + pad,
             grid: { color: '#F1EFE8' },
             ticks: { color: '#888780', font: { size: 11 }, callback: v => fmt(v) },
           },
@@ -139,7 +157,6 @@ export default function SimulationTab({ insights }) {
     }
   }, [discount, horizon, targetSeg, totalRev, totalCusts])
 
-  // Segment chart — same pattern
   useEffect(() => {
     const canvas = segmentChartRef.current
     if (!canvas) return
@@ -202,7 +219,6 @@ export default function SimulationTab({ insights }) {
     }
   }, [discount, horizon, targetSeg, totalRev, totalCusts])
 
-  // t-SNE canvas
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || tsnePoints.length === 0) return
@@ -315,7 +331,7 @@ export default function SimulationTab({ insights }) {
         <div style={S.cardHead}>
           <div>
             <div style={S.cardTitle}>Revenue projection over time</div>
-            <div style={S.cardSub}>Cumulative baseline vs. campaign over {horizon} days</div>
+            <div style={S.cardSub}>Zoomed view — axis starts near the data band so the lift is visible</div>
           </div>
           <div style={S.legend}>
             <span style={S.legItem}><span style={{ ...S.dot, background: '#B4B2A9' }} />Baseline</span>

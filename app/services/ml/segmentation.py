@@ -50,6 +50,24 @@ class SegmentationResult:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  Label pool — ordered best → worst
+#  Regardless of how many clusters GMM finds (2–8), every cluster
+#  always gets a meaningful business name from this list.
+# ─────────────────────────────────────────────────────────────────────────────
+
+SEGMENT_LABELS = [
+    "Champions",           # rank 0 — best composite RFM score
+    "Loyal Customers",     # rank 1
+    "Potential Loyalists", # rank 2
+    "New Customers",       # rank 3
+    "Promising",           # rank 4
+    "At Risk",             # rank 5
+    "Hibernating",         # rank 6
+    "Lost Customers",      # rank 7 — worst RFM score
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Public entry point — called by pipeline.py
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -78,10 +96,9 @@ def run_segmentation(df_rfm: pd.DataFrame) -> SegmentationResult:
             f"Expected: {features}. Got: {df_rfm.columns.tolist()}"
         )
 
-    X       = df_rfm[features].values
-    n_rows  = len(X)
+    X      = df_rfm[features].values
+    n_rows = len(X)
 
-    # Need at least 10 customers to do anything meaningful
     if n_rows < 10:
         raise ValueError(
             f"Only {n_rows} customers after preprocessing. "
@@ -95,25 +112,18 @@ def run_segmentation(df_rfm: pd.DataFrame) -> SegmentationResult:
     df_rfm         = df_rfm.copy()
     raw_components = best_gmm.predict(X)
 
-    # GMM component IDs are arbitrary — re-map them so cluster 0 is always
-    # the highest-value group (sorted by mean monetary desc). This makes
-    # the t-SNE cluster colours consistent across runs.
-    component_monetary = {}
-    for comp in np.unique(raw_components):
-        mask = raw_components == comp
-        component_monetary[comp] = df_rfm["monetary"].values[mask].mean()
+    # Re-map arbitrary GMM component IDs so cluster 0 = highest monetary.
+    # Consistent ordering means t-SNE colour mapping is stable across runs.
+    component_monetary = {
+        comp: df_rfm["monetary"].values[raw_components == comp].mean()
+        for comp in np.unique(raw_components)
+    }
+    sorted_comps       = sorted(component_monetary, key=component_monetary.get, reverse=True)
+    remap              = {old: new for new, old in enumerate(sorted_comps)}
+    df_rfm["cluster"]  = np.vectorize(remap.get)(raw_components)
 
-    # sorted_comps[0] = component with highest avg monetary
-    sorted_comps  = sorted(component_monetary, key=component_monetary.get, reverse=True)
-    remap         = {old: new for new, old in enumerate(sorted_comps)}
-    df_rfm["cluster"] = np.vectorize(remap.get)(raw_components)
-
-    # ── Silhouette score (kept for backward compat with StatsTab / LLM prompt)
-    if best_n >= 2:
-        sil = silhouette_score(X, df_rfm["cluster"].values)
-        sil = round(float(sil), 4)
-    else:
-        sil = 0.0
+    # ── Silhouette score ──────────────────────────────────────────────────────
+    sil = round(float(silhouette_score(X, df_rfm["cluster"].values)), 4) if best_n >= 2 else 0.0
 
     # ── Build profiles ────────────────────────────────────────────────────────
     profiles = _build_profiles(df_rfm, best_n)
@@ -132,39 +142,28 @@ def run_segmentation(df_rfm: pd.DataFrame) -> SegmentationResult:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  BIC sweep — core of the GMM approach
+#  BIC sweep
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _bic_sweep(
-    X:       np.ndarray,
-    n_rows:  int,
-) -> tuple:
+def _bic_sweep(X: np.ndarray, n_rows: int) -> tuple:
     """
-    Tries n_components = 2..max_k with multiple covariance types.
+    Tries n_components = 2..max_k across three covariance types.
     Returns (best_gmm, best_n, list_of_bic_scores).
 
-    Covariance types tried:
-      "full"  — each component has its own full covariance matrix
-                (most flexible, best for truly elliptical clusters)
-      "tied"  — all components share one covariance matrix
-                (good when clusters have similar shapes)
-      "diag"  — diagonal covariance per component
-                (faster, works well when features are independent)
-
-    We try all three and keep whichever gives the lowest BIC overall.
+    Covariance types:
+      "full" — each component has its own full covariance matrix (most flexible)
+      "tied" — all components share one covariance matrix
+      "diag" — diagonal covariance per component (faster)
     """
-    # Max clusters: at least 2, at most 8, never more than n_rows // 5
-    # (need at least 5 points per cluster for a meaningful GMM fit)
-    max_k = max(2, min(8, n_rows // 5))
-
+    max_k     = max(2, min(8, n_rows // 5))
     COV_TYPES = ["full", "tied", "diag"]
-    N_INIT    = 5      # multiple random initialisations per fit for stability
+    N_INIT    = 5
     MAX_ITER  = 300
 
     best_gmm   = None
     best_bic   = np.inf
     best_n     = 2
-    bic_scores = []          # best BIC per n_components (for debug / frontend)
+    bic_scores = []
 
     for n in range(2, max_k + 1):
         n_best_bic = np.inf
@@ -181,15 +180,11 @@ def _bic_sweep(
                 )
                 gmm.fit(X)
                 bic = gmm.bic(X)
-
                 if bic < n_best_bic:
                     n_best_bic = bic
                     n_best_gmm = gmm
-
             except Exception as exc:
-                logger.warning(
-                    "GMM fit failed (n=%d, cov=%s): %s", n, cov_type, exc
-                )
+                logger.warning("GMM fit failed (n=%d, cov=%s): %s", n, cov_type, exc)
 
         if n_best_gmm is not None:
             bic_scores.append(round(n_best_bic, 2))
@@ -198,84 +193,89 @@ def _bic_sweep(
                 best_gmm = n_best_gmm
                 best_n   = n
 
-    # Hard fallback — should never be needed but keeps pipeline alive
     if best_gmm is None:
         logger.error("All GMM fits failed — falling back to 2-component full GMM")
-        best_gmm = GaussianMixture(
-            n_components=2, covariance_type="full",
-            random_state=42
-        ).fit(X)
-        best_n   = 2
+        best_gmm   = GaussianMixture(n_components=2, covariance_type="full", random_state=42).fit(X)
+        best_n     = 2
         bic_scores = [best_gmm.bic(X)]
 
     return best_gmm, best_n, bic_scores
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Profile builder — your existing label logic, kept intact
+#  Profile builder — rank-based dynamic labeling
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_profiles(df_rfm: pd.DataFrame, n_clusters: int) -> list:
     """
-    Builds human-readable cluster profiles from raw RFM means.
-    Label assignment logic is unchanged from the KMeans version —
-    it already covers all the important segment archetypes.
+    Builds human-readable cluster profiles with rank-based label assignment.
+
+    WHY RANK-BASED INSTEAD OF THRESHOLD-BASED:
+      Hard-coded thresholds like r_pct < 0.2 only fire for extreme clusters.
+      When GMM finds 5-6 clusters (which it should on real data), most
+      mid-range clusters fall through every condition → "Segment N".
+
+      Rank-based assignment computes a composite RFM score per cluster,
+      sorts best → worst, then maps labels in order from SEGMENT_LABELS.
+      This guarantees every cluster always gets a real business name,
+      regardless of how many clusters GMM discovers.
+
+    COMPOSITE SCORE:
+      score = monetary_norm + frequency_norm - recency_norm
+
+      Each axis is normalised to [0,1] across clusters so no single
+      dimension dominates. Recency is subtracted because lower recency
+      (bought more recently) is better.
     """
-    profiles  = []
-    overall_r = df_rfm["recency"].mean()
-    overall_f = df_rfm["frequency"].mean()
-    overall_m = df_rfm["monetary"].mean()
-    max_r     = df_rfm["recency"].max()
-
-    # Guard against max_r == 0 (all customers bought "today")
-    max_r = max_r if max_r > 0 else 1
-
+    # ── Step 1: collect raw means per cluster ─────────────────────────────
+    cluster_stats = []
     for c in range(n_clusters):
         subset = df_rfm[df_rfm["cluster"] == c]
-
         if subset.empty:
-            # GMM can sometimes produce an empty component — skip it
-            logger.warning("Cluster %d is empty — skipping profile", c)
+            logger.warning("Cluster %d is empty — skipping", c)
             continue
-
-        r_mean = subset["recency"].mean()
-        f_mean = subset["frequency"].mean()
-        m_mean = subset["monetary"].mean()
-        pct    = len(subset) / len(df_rfm) * 100
-
-        # 0 = bought today (best), 1 = bought longest ago (worst)
-        r_pct = r_mean / max_r
-
-        # ── Label assignment ──────────────────────────────────────────────
-        if r_pct < 0.2 and f_mean >= overall_f and m_mean >= overall_m:
-            label = "Champions"
-        elif r_pct < 0.3 and f_mean >= overall_f:
-            label = "Loyal Customers"
-        elif r_pct < 0.3 and f_mean < overall_f * 0.5:
-            label = "New Customers"
-        elif r_pct < 0.4 and m_mean >= overall_m * 1.2:
-            label = "Potential Loyalists"
-        elif r_pct > 0.7 and f_mean >= overall_f:
-            label = "At Risk"
-        elif r_pct > 0.7 and f_mean < overall_f:
-            label = "Hibernating"
-        elif r_pct > 0.85:
-            label = "Lost Customers"
-        elif m_mean >= overall_m * 1.5:
-            label = "High Value"
-        elif f_mean < overall_f * 0.4:
-            label = "Low Engagement"
-        else:
-            label = f"Segment {c + 1}"
-
-        profiles.append({
-            "cluster_id":       c,
-            "label":            label,
-            "size":             int(len(subset)),
-            "pct_of_customers": round(float(pct), 1),
-            "avg_recency_days": round(float(r_mean), 1),
-            "avg_frequency":    round(float(f_mean), 1),
-            "avg_monetary":     round(float(m_mean), 2),
+        cluster_stats.append({
+            "cluster_id": c,
+            "size":       len(subset),
+            "r_mean":     subset["recency"].mean(),
+            "f_mean":     subset["frequency"].mean(),
+            "m_mean":     subset["monetary"].mean(),
+            "pct":        len(subset) / len(df_rfm) * 100,
         })
 
+    if not cluster_stats:
+        return []
+
+    # ── Step 2: normalise each RFM axis to [0, 1] across clusters ─────────
+    def _norm(vals):
+        lo, hi = min(vals), max(vals)
+        return [(v - lo) / (hi - lo) if hi > lo else 0.5 for v in vals]
+
+    r_norm = _norm([s["r_mean"] for s in cluster_stats])
+    f_norm = _norm([s["f_mean"] for s in cluster_stats])
+    m_norm = _norm([s["m_mean"] for s in cluster_stats])
+
+    # ── Step 3: composite score — higher = better customer ─────────────────
+    for i, stat in enumerate(cluster_stats):
+        # Recency subtracted: low recency (bought recently) = good
+        stat["score"] = m_norm[i] + f_norm[i] - r_norm[i]
+
+    # ── Step 4: sort best → worst, assign label by rank ────────────────────
+    cluster_stats.sort(key=lambda s: s["score"], reverse=True)
+
+    profiles = []
+    for rank, stat in enumerate(cluster_stats):
+        label = SEGMENT_LABELS[min(rank, len(SEGMENT_LABELS) - 1)]
+        profiles.append({
+            "cluster_id":       stat["cluster_id"],
+            "label":            label,
+            "size":             int(stat["size"]),
+            "pct_of_customers": round(float(stat["pct"]), 1),
+            "avg_recency_days": round(float(stat["r_mean"]), 1),
+            "avg_frequency":    round(float(stat["f_mean"]), 1),
+            "avg_monetary":     round(float(stat["m_mean"]), 2),
+        })
+
+    # Sort by cluster_id so index matches cluster int (frontend colour mapping)
+    profiles.sort(key=lambda p: p["cluster_id"])
     return profiles

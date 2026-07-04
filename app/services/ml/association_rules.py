@@ -3,11 +3,12 @@ from dataclasses import dataclass
 from mlxtend.frequent_patterns import fpgrowth, association_rules
 from mlxtend.preprocessing import TransactionEncoder
 
+
 @dataclass
 class AssociationResult:
     rules:       list
     total_found: int
-    mining_mode: str   # "product" | "category" | "empty"
+    mining_mode: str   # "product" | "category" | "popular_fallback" | "empty"
 
 
 def run_association_rules(
@@ -21,16 +22,14 @@ def run_association_rules(
 
     Strategy (auto-selected):
     1. Product-level  — used when baskets are rich enough (avg > 2 items)
-    2. Category-level — used for sparse datasets like Amazon reviews
-                        where most users only bought 1-2 products.
-                        Groups products by category per user and mines
-                        category co-occurrence patterns instead.
-
-    Args:
-        df_basket:      basket table from preprocessing (must have 'items' column)
-        min_support:    minimum frequency threshold (0.02 = appears in 2%+ of baskets)
-        min_confidence: minimum confidence for a rule (0.3 = 30%+ co-occurrence)
-        top_n:          max rules to return, sorted by lift
+    2. Category-level — used for sparse datasets (Amazon-style) where most
+                        users only bought 1-2 products.
+    3. Relaxed pass   — if both above fail, retries with halved thresholds.
+    4. Popular-items  — final fallback when dataset is so sparse that NO
+                        co-purchase rules can be mined at any threshold.
+                        Returns top-N most purchased items ranked by
+                        frequency so the frontend always has something
+                        useful to show rather than a blank panel.
     """
     if df_basket.empty or "items" not in df_basket.columns:
         return AssociationResult(rules=[], total_found=0, mining_mode="empty")
@@ -38,21 +37,18 @@ def run_association_rules(
     transactions = df_basket["items"].tolist()
     transactions = [t for t in transactions if isinstance(t, list) and len(t) > 1]
 
-    # ── Decide mining mode ────────────────────────────────────────────────────
-    # If we have enough multi-item baskets → product-level
-    # Otherwise → category-level (works for Amazon-style data)
+    # ── Decide mining mode ─────────────────────────────────────────────────
     avg_basket_size = (
         sum(len(t) for t in transactions) / len(transactions)
         if transactions else 0
     )
 
     if len(transactions) >= 50 and avg_basket_size >= 2:
-        return _mine_rules(transactions, min_support, min_confidence, top_n, mode="product")
+        result = _mine_rules(transactions, min_support, min_confidence, top_n, mode="product")
+        if result.total_found > 0:
+            return result
 
-    # ── Category-level fallback ───────────────────────────────────────────────
-    # df_basket items are product names/ids — we need the original df to get categories.
-    # Check if category info was embedded (items may already be categories)
-    # We detect this by checking if items look like category strings vs product IDs
+    # ── Category-level fallback ────────────────────────────────────────────
     sample_items = transactions[0] if transactions else []
     looks_like_categories = (
         len(sample_items) > 0 and
@@ -62,32 +58,38 @@ def run_association_rules(
     )
 
     if looks_like_categories:
-        return _mine_rules(transactions, min_support, min_confidence, top_n, mode="category")
+        result = _mine_rules(transactions, min_support, min_confidence, top_n, mode="category")
+        if result.total_found > 0:
+            return result
 
-    # ── Build category baskets from the items column ──────────────────────────
-    # items are product names — extract category from the product name prefix
-    # (best effort — works when product names include category hints)
+    # ── Build category baskets from items column ───────────────────────────
     category_transactions = _extract_category_baskets(df_basket)
-
     if len(category_transactions) >= 10:
-        return _mine_rules(
+        result = _mine_rules(
             category_transactions, min_support, min_confidence, top_n, mode="category"
         )
+        if result.total_found > 0:
+            return result
 
-    # ── Last resort: try product-level with relaxed thresholds ────────────────
+    # ── Last resort: relaxed product-level ────────────────────────────────
     if len(transactions) >= 10:
-        return _mine_rules(
+        result = _mine_rules(
             transactions,
             min_support    = min_support / 4,
             min_confidence = min_confidence / 2,
             top_n          = top_n,
             mode           = "product",
         )
+        if result.total_found > 0:
+            return result
 
-    return AssociationResult(rules=[], total_found=0, mining_mode="empty")
+    # ── Popular-items fallback ─────────────────────────────────────────────
+    # Reaches here only when the dataset is so sparse (e.g. every customer
+    # bought exactly 1 product) that no co-purchase signal exists at all.
+    return _popular_items_fallback(df_basket, top_n)
 
 
-# ── Core mining logic ─────────────────────────────────────────────────────────
+# ── Core mining logic ──────────────────────────────────────────────────────────
 
 def _mine_rules(
         transactions:   list,
@@ -100,7 +102,6 @@ def _mine_rules(
     Runs FP-Growth + association rules on a list of transactions.
     Automatically relaxes thresholds if nothing is found at first pass.
     """
-    # Deduplicate items within each basket (categories especially can repeat)
     transactions = [list(dict.fromkeys(t)) for t in transactions]
     transactions = [t for t in transactions if len(t) > 1]
 
@@ -111,39 +112,40 @@ def _mine_rules(
     te_array = te.fit_transform(transactions)
     df_enc   = pd.DataFrame(te_array, columns=te.columns_)
 
-    # Try with original threshold, then relax if needed
+    # Try support thresholds: original → ÷2 → ÷4
+    frequent_itemsets = None
     for support_multiplier in [1.0, 0.5, 0.25]:
         effective_support = min_support * support_multiplier
-        frequent_itemsets = fpgrowth(
-            df_enc,
-            min_support  = effective_support,
-            use_colnames = True,
-        )
-        if not frequent_itemsets.empty:
+        fi = fpgrowth(df_enc, min_support=effective_support, use_colnames=True)
+        if not fi.empty:
+            frequent_itemsets = fi
             break
-    else:
+
+    if frequent_itemsets is None or frequent_itemsets.empty:
         return AssociationResult(rules=[], total_found=0, mining_mode=mode)
 
-    # Try with original confidence, then relax
+    # Try confidence thresholds: original → ÷2
+    rules_df = None
     for conf_multiplier in [1.0, 0.5]:
         effective_conf = min_confidence * conf_multiplier
         try:
-            rules_df = association_rules(
+            df_rules = association_rules(
                 frequent_itemsets,
                 metric        = "confidence",
                 min_threshold = effective_conf,
                 num_itemsets  = len(frequent_itemsets),
             )
         except TypeError:
-            # older mlxtend versions don't have num_itemsets
-            rules_df = association_rules(
+            df_rules = association_rules(
                 frequent_itemsets,
                 metric        = "confidence",
                 min_threshold = effective_conf,
             )
-        if not rules_df.empty:
+        if not df_rules.empty:
+            rules_df = df_rules
             break
-    else:
+
+    if rules_df is None or rules_df.empty:
         return AssociationResult(rules=[], total_found=0, mining_mode=mode)
 
     rules_df    = rules_df.sort_values("lift", ascending=False)
@@ -165,59 +167,75 @@ def _mine_rules(
     return AssociationResult(rules=rules_list, total_found=total_found, mining_mode=mode)
 
 
-# ── Category basket builder ───────────────────────────────────────────────────
+# ── Popular-items fallback ─────────────────────────────────────────────────────
+
+def _popular_items_fallback(df_basket: pd.DataFrame, top_n: int) -> AssociationResult:
+    """
+    When no co-purchase rules can be mined (fully sparse data — every customer
+    bought only 1 product), fall back to ranking items by purchase frequency.
+
+    Output format deliberately mirrors the association rules format so the
+    frontend RulesTab can render it without any structural changes.
+    Each "rule" is:  [] → [product]  with support = purchase_frequency
+    and a special mode flag "popular_fallback" so the frontend can show
+    a notice explaining why rules couldn't be mined.
+    """
+    all_items = []
+    for items in df_basket["items"]:
+        if isinstance(items, list):
+            all_items.extend(items)
+        # Also count single-item baskets that were filtered out earlier
+    
+    # Also scan single-item baskets (len == 1) which _mine_rules ignores
+    single_items = df_basket["items"].tolist()
+    for items in single_items:
+        if isinstance(items, list):
+            all_items.extend(items)
+
+    if not all_items:
+        return AssociationResult(rules=[], total_found=0, mining_mode="empty")
+
+    item_counts  = pd.Series(all_items).value_counts()
+    total_baskets = len(df_basket)
+
+    rules_list = []
+    for item, count in item_counts.head(top_n).items():
+        support = round(count / total_baskets, 4) if total_baskets > 0 else 0.0
+        rules_list.append({
+            "antecedents": [],               # no antecedent — standalone recommendation
+            "consequents": [str(item)],
+            "support":     support,
+            "confidence":  round(support, 4),
+            "lift":        1.0,              # neutral lift — not a co-purchase signal
+            "mode":        "popular_fallback",
+            "purchase_count": int(count),
+        })
+
+    return AssociationResult(
+        rules       = rules_list,
+        total_found = len(rules_list),
+        mining_mode = "popular_fallback",
+    )
+
+
+# ── Category basket builder ────────────────────────────────────────────────────
 
 def _extract_category_baskets(df_basket: pd.DataFrame) -> list:
     """
     Builds category-level baskets from the items column.
-
     For Amazon data where items are product names, we use the first word
-    or pipe-separated category prefix as a rough category signal.
-
-    If the basket df has a 'category' column (passed through from preprocessing),
-    we use that directly — much more accurate.
+    as a rough category proxy.
     """
-    # Best case: category column was preserved in the basket df
-    if "category" in df_basket.columns:
-        cat_baskets = (
-            df_basket.groupby(df_basket.index // 1)["category"]
-            .apply(list).tolist()
-        )
-        return [list(set(b)) for b in cat_baskets if len(set(b)) > 1]
-
-    # Fallback: try to infer category from item strings
-    # This is a best-effort heuristic
-    category_keywords = {
-        "Electronics":          ["cable", "charger", "phone", "laptop", "tablet",
-                                  "earphone", "headphone", "speaker", "camera"],
-        "Computers":            ["keyboard", "mouse", "monitor", "ssd", "ram",
-                                  "processor", "usb", "hub"],
-        "HomeKitchen":          ["kitchen", "home", "cooker", "mixer", "fan",
-                                  "light", "bulb", "iron"],
-        "Clothing":             ["shirt", "trouser", "dress", "shoe", "sandal",
-                                  "watch", "bag", "wallet"],
-        "Books":                ["book", "novel", "guide", "manual"],
-        "Sports":               ["sport", "gym", "fitness", "yoga", "cycle"],
-        "Beauty":               ["cream", "lotion", "shampoo", "soap", "face",
-                                  "hair", "skin"],
-        "Toys":                 ["toy", "game", "puzzle", "lego", "doll"],
-        "OfficeProducts":       ["pen", "pencil", "notebook", "stapler", "tape"],
-    }
-
-    def _infer_category(item: str) -> str:
-        item_lower = str(item).lower()
-        for cat, keywords in category_keywords.items():
-            if any(kw in item_lower for kw in keywords):
-                return cat
-        return "Other"
-
-    category_baskets = []
+    category_transactions = []
     for items in df_basket["items"]:
         if not isinstance(items, list):
             continue
-        cats = list(set(_infer_category(item) for item in items))
-        cats = [c for c in cats if c != "Other"]
-        if len(cats) > 1:
-            category_baskets.append(cats)
-
-    return category_baskets
+        categories = []
+        for item in items:
+            parts = str(item).strip().split()
+            if parts:
+                categories.append(parts[0].lower())
+        categories = list(dict.fromkeys(categories))  # deduplicate, preserve order
+        if len(categories) > 1:
+            category_transactions.append(categories)
+    return category_transactions

@@ -1,3 +1,4 @@
+import asyncio
 from app.core.config import settings
 async def generate_report(prompt : str, model: str = None) -> dict:
     """
@@ -29,32 +30,29 @@ async def generate_report(prompt : str, model: str = None) -> dict:
         raise ValueError(f"Unknown model '{chosen_model}'."
                          f"Choose from: 'groq','gemini', 'openai','anthropic'")
     
-async def _call_groq(prompt:str) -> dict:
+async def _call_groq(prompt: str) -> dict:
     if not settings.GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY is not set in your.env file")
-    from groq import Groq
-    client = Groq(api_key = settings.GROQ_API_KEY)
-    response = client.chat.completions.create(
-        model = "llama-3.3-70b-versatile",
-        max_tokens = 2048,
-        messages = [
-            {
-            "role" : "system",
-            "content" : "You are a senior marketing strategist. Give clear, specific, data-drivem recommendations to the user. Be concise and actionable in your advice.",
-            },
-            {
-                "role" : "user",
-                "content" : prompt
-            }
-        ]
-    )
-    return {
-        "text" : response.choices[0].message.content,
-        "model_used" : "llama-3.3-70b-versatile (Groq)",
-        "input_tokens" : response.usage.prompt_tokens,
-        "output_tokens" : response.usage.completion_tokens,
-    }
+        raise ValueError("GROQ_API_KEY is not set in your .env file")
 
+    def _sync_call():
+        from groq import Groq
+        client   = Groq(api_key=settings.GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model      = "llama-3.3-70b-versatile",
+            max_tokens = 2048,
+            messages   = [
+                {"role": "system", "content": "You are a senior marketing strategist. Give clear, specific, data-driven recommendations to the user. Be concise and actionable in your advice."},
+                {"role": "user",   "content": prompt}
+            ]
+        )
+        return {
+            "text":         response.choices[0].message.content,
+            "model_used":   "llama-3.3-70b-versatile (Groq)",
+            "input_tokens":  response.usage.prompt_tokens,
+            "output_tokens": response.usage.completion_tokens,
+        }
+
+    return await asyncio.to_thread(_sync_call)
 async def _call_gemini(prompt: str) -> dict:
     if not settings.GEMINI_API_KEY:
         raise ValueError("Gemini_API_KEY is not set in your .env file")

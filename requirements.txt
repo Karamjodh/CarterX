@@ -19,3 +19,5 @@ mlxtend==0.23.1
 numpy==1.26.4
 rapidfuzz==3.9.0
 openpyxl==3.1.2
+keras
+prophet

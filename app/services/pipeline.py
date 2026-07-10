@@ -1,7 +1,7 @@
 import uuid
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from app.models.job import Job, JobStatus
 from app.models.insight import Insight
 from app.services.ml.preprocessing import run_preprocessing
@@ -25,23 +25,32 @@ async def run_pipeline(
     focus:        str = "general",
 ):
     async def update_stage(stage: str, status: str):
+        """Updates a single stage status using a direct SQL UPDATE."""
         result = await db.execute(select(Job).where(Job.id == job_id))
         job    = result.scalar_one_or_none()
         if job:
             stages           = dict(job.stage_status or {})
             stages[stage]    = status
-            job.stage_status = stages
+            await db.execute(
+                update(Job)
+                .where(Job.id == job_id)
+                .values(stage_status=stages)
+            )
             await db.commit()
             logger.info(f"Job {job_id} — [{stage}] {status}")
 
     async def set_job_status(status: JobStatus, error: str = None):
-        result = await db.execute(select(Job).where(Job.id == job_id))
-        job    = result.scalar_one_or_none()
-        if job:
-            job.status = status
-            if error:
-                job.error_message = error
-            await db.commit()
+        """Sets top-level job status using a direct SQL UPDATE — avoids ORM dirty-tracking issues."""
+        values = {"status": status}
+        if error:
+            values["error_message"] = error
+        await db.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(**values)
+        )
+        await db.commit()
+        logger.info(f"Job {job_id} — status set to {status}")
 
     try:
         await set_job_status(JobStatus.PROCESSING)
@@ -73,21 +82,20 @@ async def run_pipeline(
         logger.info(f"[{job_id}] Running forecasting...")
         forecast_result          = run_forecasting(prep.df_clean, prep.dataset_type)
         forecast_data_serialized = json.loads(json.dumps({
-            "success":       forecast_result.success,
-            "model_used":    forecast_result.model_used,
-            "history":       forecast_result.history,
-            "forecast":      forecast_result.forecast,
-            "horizons":      forecast_result.horizons,
-            "mae":           forecast_result.mae,
-            "has_date_data": forecast_result.has_date_data,
-            "warning":       forecast_result.warning,
-            "error":         forecast_result.error,
+            "success":        forecast_result.success,
+            "model_used":     forecast_result.model_used,
+            "history":        forecast_result.history,
+            "forecast":       forecast_result.forecast,
+            "horizons":       forecast_result.horizons,
+            "mae":            forecast_result.mae,
+            "has_date_data":  forecast_result.has_date_data,
+            "warning":        forecast_result.warning,
+            "error":          forecast_result.error,
         }))
         await update_stage("forecasting", "completed")
 
         # ── Stage 6: LLM report ────────────────────────────────────────────
         await update_stage("llm_report", "running")
-
         analysis_data = {
             "summary":           prep.summary,
             "segments":          seg.cluster_profiles,
@@ -96,7 +104,6 @@ async def run_pipeline(
             "silhouette_score":  seg.silhouette_score,
             "dataset_type":      prep.dataset_type,
         }
-
         prompt     = build_analysis_prompt(analysis_data, focus=focus)
         llm_result = await generate_report(prompt, model=llm_model)
         await update_stage("llm_report", "completed")
@@ -114,18 +121,19 @@ async def run_pipeline(
             silhouette_score  = seg.silhouette_score,
             trend_data        = trend_data_serialized,
             tsne_data         = tsne_data_serialized,
-            forecast_data     = forecast_data_serialized,   # ← NEW
+            forecast_data     = forecast_data_serialized,
             llm_report        = llm_result["text"],
             model_used        = llm_result["model_used"],
             dataset_type      = prep.dataset_type,
         )
         db.add(insight)
-        await set_job_status(JobStatus.COMPLETED)
         await db.commit()
+
+        # ── Mark job completed AFTER insight is saved ──────────────────────
+        await set_job_status(JobStatus.COMPLETED)
         logger.info(f"Job {job_id} completed successfully")
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}", exc_info=True)
         await set_job_status(JobStatus.FAILED, error=str(e))
-        await db.commit()
         raise

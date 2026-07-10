@@ -58,11 +58,12 @@ async def upload_file(
         row_count = len(df),
         status = JobStatus.PENDING,
         stage_status = {
-    "preprocessing" : "pending",
-    "segmentation" : "pending",
-    "tsne" : "pending",
-    "association_rules" : "pending",
-    "llm_report" : "pending",
+    "preprocessing":    "pending",
+    "segmentation":     "pending",
+    "tsne":             "pending",
+    "association_rules":"pending",
+    "forecasting":      "pending",   
+    "llm_report":       "pending",
 }
     )
     db.add(job)

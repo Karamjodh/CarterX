@@ -7,12 +7,14 @@ import RulesTab          from './dashboard/RulesTab'
 import ClustersTab       from './dashboard/ClustersTab'
 import StatsTab          from './dashboard/StatsTab'
 import SimulationTab     from './dashboard/SimulationTab'
+import ForecastTab       from './dashboard/ForecastTab'   // ← NEW
 
 const NAV = [
   { id: 'visualizations', icon: '▦', label: 'Visualizations',  sub: 'Charts & trends'     },
   { id: 'clusters',       icon: '◉', label: 'Segments',         sub: 'Customer groups'     },
   { id: 'simulation',     icon: '⟳', label: 'Simulation',       sub: 'What-if analysis'    },
   { id: 'rules',          icon: '⇌', label: 'Rules',            sub: 'Purchase patterns'   },
+  { id: 'forecast',       icon: '⟠', label: 'Forecast',         sub: 'Revenue prediction'  },  // ← NEW
   { id: 'report',         icon: '✦', label: 'AI Report',        sub: 'Strategy & insights' },
   { id: 'stats',          icon: '≡', label: 'Statistics',       sub: 'Full data breakdown' },
 ]
@@ -44,6 +46,7 @@ export default function DashboardPage() {
     clusters:       <ClustersTab       insights={insights} />,
     simulation:     <SimulationTab     insights={insights} />,
     rules:          <RulesTab          insights={insights} />,
+    forecast:       <ForecastTab       insights={insights} />,   // ← NEW
     report:         <ReportTab         insights={insights} jobId={jobId} />,
     stats:          <StatsTab          insights={insights} />,
   }
@@ -100,7 +103,7 @@ export default function DashboardPage() {
             </button>
             <div style={S.sidebarMeta}>
               <div style={S.metaLine}>{s.total_customers} customers</div>
-              <div style={S.metaLine}>${(s.total_revenue/1e6).toFixed(2)}M revenue</div>
+              <div style={S.metaLine}>${(s.total_revenue/1e6)?.toFixed(2)}M revenue</div>
             </div>
           </div>
         )}
@@ -116,13 +119,15 @@ export default function DashboardPage() {
               {NAV.find(n => n.id === active)?.label}
             </h1>
             <p style={S.pageSubtitle}>
-              {s.date_start} → {s.date_end} &nbsp;·&nbsp;
+              {s.date_start && s.date_start !== 'N/A'
+                ? `${s.date_start} → ${s.date_end} · `
+                : ''}
               {s.total_transactions?.toLocaleString()} transactions
             </p>
           </div>
           <div style={S.headerKPIs}>
             {[
-              ['Revenue',    `$${(s.total_revenue/1e6).toFixed(2)}M`],
+              ['Revenue',   `$${(s.total_revenue/1e6)?.toFixed(2)}M`],
               ['Customers',  s.total_customers],
               ['Segments',   insights.n_clusters],
               ['Rules',      insights.association_rules?.length],

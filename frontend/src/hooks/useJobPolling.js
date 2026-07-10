@@ -25,7 +25,7 @@ export function useJobPolling(jobId) {
     }
 
     poll()
-    intervalRef.current = setInterval(poll, 3000)
+    intervalRef.current = setInterval(poll, 2000)
 
     return () => clearInterval(intervalRef.current)
 

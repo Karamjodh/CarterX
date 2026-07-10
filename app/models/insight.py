@@ -22,6 +22,7 @@ class Insight(Base):
     n_clusters = Column(JSON) # instead of creating different table for cluster_profiles, association_rules etc...
     tsne_data = Column(JSON)    # t-SNE 2D embedding points
     silhouette_score = Column(JSON)
+    forecast_data = Column(JSON, nullable=True)
     # LLM Report
     trend_data = Column(JSON)
     llm_report = Column(Text, nullable = True)

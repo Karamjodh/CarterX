@@ -7,7 +7,7 @@ from app.models.insight import Insight
 from app.services.ml.preprocessing import run_preprocessing
 from app.services.ml.segmentation import run_segmentation
 from app.services.ml.association_rules import run_association_rules
-from app.services.ml.stats import compute_stats
+from app.services.ml.forecasting import run_forecasting
 from app.services.prompt_builder import build_analysis_prompt
 from app.services.llm import generate_report
 from app.services.ml.tsne import run_tsne
@@ -68,16 +68,28 @@ async def run_pipeline(
         assoc = run_association_rules(prep.df_basket)
         await update_stage("association_rules", "completed")
 
-        # ── Stats computation (runs after all ML stages) ───────────────────
-        # compute_stats() combines prep + seg + assoc into one complete
-        # summary dict so StatsTab always has every field it needs.
-        stats_summary = compute_stats(prep, seg, assoc)
+        # ── Stage 5: Forecasting ───────────────────────────────────────────
+        await update_stage("forecasting", "running")
+        logger.info(f"[{job_id}] Running forecasting...")
+        forecast_result          = run_forecasting(prep.df_clean, prep.dataset_type)
+        forecast_data_serialized = json.loads(json.dumps({
+            "success":       forecast_result.success,
+            "model_used":    forecast_result.model_used,
+            "history":       forecast_result.history,
+            "forecast":      forecast_result.forecast,
+            "horizons":      forecast_result.horizons,
+            "mae":           forecast_result.mae,
+            "has_date_data": forecast_result.has_date_data,
+            "warning":       forecast_result.warning,
+            "error":         forecast_result.error,
+        }))
+        await update_stage("forecasting", "completed")
 
-        # ── Stage 5: LLM report ────────────────────────────────────────────
+        # ── Stage 6: LLM report ────────────────────────────────────────────
         await update_stage("llm_report", "running")
 
         analysis_data = {
-            "summary":           stats_summary,
+            "summary":           prep.summary,
             "segments":          seg.cluster_profiles,
             "association_rules": assoc.rules,
             "trend_data":        prep.trend_data,
@@ -95,13 +107,14 @@ async def run_pipeline(
         insight = Insight(
             id                = str(uuid.uuid4()),
             job_id            = job_id,
-            summary           = stats_summary,        # ← full stats dict
+            summary           = prep.summary,
             cluster_profiles  = seg.cluster_profiles,
             association_rules = assoc.rules,
             n_clusters        = seg.n_clusters,
             silhouette_score  = seg.silhouette_score,
             trend_data        = trend_data_serialized,
             tsne_data         = tsne_data_serialized,
+            forecast_data     = forecast_data_serialized,   # ← NEW
             llm_report        = llm_result["text"],
             model_used        = llm_result["model_used"],
             dataset_type      = prep.dataset_type,

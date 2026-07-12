@@ -41,4 +41,4 @@ def root():
         "environment": settings.ENVIORNMENT,
         "message":     "Welcome to Carter.ai",
         "docs":        "/docs",
-    };
+    }

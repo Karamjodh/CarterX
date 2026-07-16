@@ -13,15 +13,18 @@ CANONICAL_COLUMNS = {
     "customer_id": [
         "customer_id", "cust_id", "customerid", "client_id",
         "user_id", "userid", "buyer_id",
+        "customer_name", "customername", "buyer_name",      # covers "Customer Name"
     ],
     "transaction_id": [
         "transaction_id", "order_id", "invoice_id", "txn_id",
         "invoiceno", "invoice_no", "invoice_number",
         "review_id", "reviewid",
+        "order_number", "order_no",                         # extra sales aliases
     ],
     "product_name": [
         "product_name", "item_name", "product", "item",
         "description", "product_description", "product_title", "title",
+        "product_name", "item_description",
     ],
     "product_id": [
         "product_id", "item_id", "sku", "product_code",
@@ -34,10 +37,13 @@ CANONICAL_COLUMNS = {
     "quantity": [
         "quantity", "qty", "units", "count",
         "rating_count", "num_ratings",
+        "quantity_sold", "units_sold", "quantity_ordered",  # extra sales aliases
     ],
     "price": [
         "price", "unit_price", "sale_price", "cost", "value",
         "unitprice", "selling_price", "discounted_price", "final_price",
+        "total_sales", "total_revenue", "revenue",          # covers "Total Sales"
+        "amount", "total_amount", "net_sales",
     ],
     "actual_price": [
         "actual_price", "original_price", "mrp", "list_price",
@@ -55,9 +61,10 @@ CANONICAL_COLUMNS = {
         "date", "purchase_date", "order_date", "transaction_date",
         "created_at", "invoicedate", "invoice_date",
         "sale_date", "order_timestamp",
+        "order_date", "delivery_date", "ship_date",         # extra sales aliases
     ],
     "user_name": [
-        "user_name", "username", "reviewer_name", "reviewer", "customer_name",
+        "user_name", "username", "reviewer_name", "reviewer",
     ],
     "review_title": [
         "review_title", "review_header", "review_summary",
@@ -75,7 +82,7 @@ CANONICAL_COLUMNS = {
 }
 
 # Strict — only these two are truly required
-REQUIRED_COLUMNS = {"customer_id", "product_id"}
+REQUIRED_COLUMNS = frozenset(["customer_id"])
 FUZZY_THRESHOLD  = 80   # raised from 75 to avoid wrong matches
 
 
@@ -98,6 +105,8 @@ def run_preprocessing(file_bytes: bytes, content_type: str) -> PreprocessingResu
 
     # 2. Map columns
     column_map  = _map_columns(df.columns.tolist())
+    logger.info(f"RAW COLUMNS: {df.columns.tolist()}")   # ← ADD THIS
+    logger.info(f"MAPPED COLUMNS: {column_map}")           # ← ADD THIS
     _validate_required_columns(column_map)
 
     reverse_map = {user_col: canonical for canonical, user_col in column_map.items()}
@@ -635,7 +644,7 @@ def _map_columns(user_columns: list) -> dict:
     used_canonicals = set()
 
     for original_col in user_columns:
-        norm_col = original_col.lower().strip().replace(" ", "_")
+        norm_col = original_col.lower().strip().replace(" ", "_").replace("-", "_")
 
         # Exact match first
         if norm_col in all_aliases:
@@ -661,9 +670,25 @@ def _map_columns(user_columns: list) -> dict:
 
 
 def _validate_required_columns(column_map: dict):
-    missing = REQUIRED_COLUMNS - set(column_map.keys())
-    if missing:
+    found_columns = set(column_map.keys())
+
+    customer_aliases = {
+        "customer_id", "user_id", "userid", "buyer_id",
+        "client_id", "cust_id", "customerid"
+    }
+    has_customer = bool(found_columns & customer_aliases)
+
+    if not has_customer:
         raise ValueError(
-            f"Could not find required columns: {missing}. "
-            f"Please make sure your file has customer/user ID and product ID columns."
+            "Could not identify a customer/user ID column in your file. "
+            "Please make sure your data has a column like: "
+            "customer_id, user_id, buyer_id, or userid."
+        )
+
+    useful_optional = {"product_id", "date", "price", "quantity", "rating"}
+    missing_optional = useful_optional - found_columns
+    if missing_optional:
+        logger.warning(
+            "Optional columns not found: %s — some features may be limited.",
+            missing_optional
         )

@@ -80,10 +80,14 @@ def run_forecasting(df_clean: pd.DataFrame, dataset_type: str) -> ForecastResult
             for _, row in monthly.iterrows()
         ]
 
-        if len(monthly) >= 12:
-            forecast, mae, model_name = _run_lstm(monthly)
-        else:
-            forecast, mae, model_name = _run_prophet(monthly)
+        try:
+            if len(monthly) >= 12:
+                forecast, mae, model_name = _run_lstm(monthly)
+            else:
+                forecast, mae, model_name = _run_prophet(monthly)
+        except Exception as e:
+            logger.warning("Primary model failed (%s) — falling back to Linear Trend", e)
+            forecast, mae, model_name = _run_linear_fallback(monthly)
 
         return ForecastResult(
             success       = True,
@@ -198,10 +202,12 @@ def _build_monthly_series(df: pd.DataFrame, dataset_type: str) -> Optional[pd.Da
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_lstm(monthly: pd.DataFrame) -> tuple[list, float, str]:
-    import tensorflow as tf
-    from tensorflow import keras
-
-    tf.get_logger().setLevel("ERROR")
+    try:
+        import tensorflow as tf
+        from tensorflow import keras
+    except ImportError:
+        logger.warning("TensorFlow not installed — falling back to Linear Trend")
+        return _run_linear_fallback(monthly)
 
     values = monthly["revenue"].values.astype(float)
     n      = len(values)

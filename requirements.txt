@@ -21,3 +21,4 @@ rapidfuzz==3.9.0
 openpyxl==3.1.2
 keras
 prophet
+tensorflow

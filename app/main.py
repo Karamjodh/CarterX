@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.session import init_db
-from app.api.routes import health, jobs, uploads, reports, insights, forecasting
+from app.api.routes import health, jobs, uploads, reports, insights, forecasting, geo
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,6 +33,7 @@ app.include_router(uploads.router,     prefix="/api/v1/uploads",    tags=["Uploa
 app.include_router(reports.router,     prefix="/api/v1/reports",    tags=["Reports"])
 app.include_router(insights.router,    prefix="/api/v1/insights",   tags=["Insights"])
 app.include_router(forecasting.router, prefix="/api/v1/forecasts",  tags=["Forecasts"])
+app.include_router(geo.router,         prefix = "/api/v1/geo",      tags=["Geo"])
 
 @app.get("/")
 def root():

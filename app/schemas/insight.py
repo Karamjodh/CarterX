@@ -17,6 +17,7 @@ class InsightResponse(BaseModel):
     silhouette_score : Optional[float] = None
     trend_data : Optional[dict] = None
     forecast_data : Optional[dict] = None
+    geo_data : Optional[dict] = None
     llm_report : Optional[str] = None
     model_used : Optional[str] = None
     created_at : Optional[datetime] = None

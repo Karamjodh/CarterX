@@ -79,6 +79,12 @@ CANONICAL_COLUMNS = {
     "product_link": [
         "product_link", "product_url", "item_url", "url", "link",
     ],
+    "region": [
+    "country", "region", "state", "city", "province",
+    "location", "area", "territory", "zone", "market",
+    "country_code", "geo", "geography", "place",
+    "customer_location", "buyer_location",
+    ],
 }
 
 # Strict — only these two are truly required

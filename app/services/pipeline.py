@@ -8,6 +8,7 @@ from app.services.ml.preprocessing import run_preprocessing
 from app.services.ml.segmentation import run_segmentation
 from app.services.ml.association_rules import run_association_rules
 from app.services.ml.forecasting import run_forecasting
+from app.services.ml.geo_analysis import run_geo_analysis
 from app.services.prompt_builder import build_analysis_prompt
 from app.services.llm import generate_report
 from app.services.ml.tsne import run_tsne
@@ -94,7 +95,23 @@ async def run_pipeline(
         }))
         await update_stage("forecasting", "completed")
 
-        # ── Stage 6: LLM report ────────────────────────────────────────────
+        # ── Stage 6: Geo Analysis ────────────────────────────────────────────
+        await update_stage("geo_analysis", "running")
+        geo_result = run_geo_analysis(prep.df_clean, seg.cluster_profiles, prep.dataset_type)
+        geo_data_serialized = json.loads(json.dumps({
+            "has_geo_data":         geo_result.has_geo_data,
+            "geo_column":           geo_result.geo_column,
+            "region_stats":         geo_result.region_stats,
+            "region_growth":        geo_result.region_growth,
+            "top_regions":          geo_result.top_regions,
+            "regional_segments":    geo_result.regional_segments,
+            "regional_products":    geo_result.regional_products,
+            "market_concentration": geo_result.market_concentration,
+            "summary":              geo_result.summary,
+        }))
+        await update_stage("geo_analysis", "completed")
+
+        # ── Stage 7: LLM report ────────────────────────────────────────────
         await update_stage("llm_report", "running")
         analysis_data = {
             "summary":           prep.summary,
@@ -122,12 +139,15 @@ async def run_pipeline(
             trend_data        = trend_data_serialized,
             tsne_data         = tsne_data_serialized,
             forecast_data     = forecast_data_serialized,
+            geo_data          = geo_data_serialized,
             llm_report        = llm_result["text"],
             model_used        = llm_result["model_used"],
             dataset_type      = prep.dataset_type,
         )
         db.add(insight)
         await db.commit()
+        await set_job_status(JobStatus.COMPLETED)
+        logger.info(f"Job {job_id} completed successfully")
 
         # ── Mark job completed AFTER insight is saved ──────────────────────
         await set_job_status(JobStatus.COMPLETED)

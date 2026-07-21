@@ -39,9 +39,19 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function ForecastTab({ insights }) {
-  const fd = insights.forecast_data
+  const fd = insights?.forecast_data
 
   const [horizon, setHorizon] = useState(90)
+
+  // Extract data — must happen before any conditional return
+  const history  = fd?.history  || []
+  const forecast = fd?.forecast || []
+
+  // useMemo must be called before any early return
+  const forecastSlice = useMemo(
+    () => forecast.slice(0, horizon),
+    [forecast, horizon]
+  )
 
   // No forecast data at all
   if (!fd) {
@@ -66,15 +76,6 @@ export default function ForecastTab({ insights }) {
       </div>
     )
   }
-
-  const history  = fd.history  || []
-  const forecast = fd.forecast || []
-
-  // Slice forecast to selected horizon
-  const forecastSlice = useMemo(
-    () => forecast.slice(0, horizon),
-    [forecast, horizon]
-  )
 
   // Build combined chart data:
   // History points get actual revenue, forecast points get predicted/lower/upper

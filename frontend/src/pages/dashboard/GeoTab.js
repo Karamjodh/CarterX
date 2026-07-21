@@ -9,49 +9,26 @@ import {
 } from 'recharts'
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
-
 const COLORS  = ['#7F77DD', '#1D9E75', '#D85A30', '#BA7517', '#185FA5', '#D4537E']
-const SEG_COLORS = {
-  'Champions':           '#7F77DD',
-  'Loyal Customers':     '#1D9E75',
-  'Potential Loyalists': '#185FA5',
-  'New Customers':       '#BA7517',
-  'Promising':           '#D4537E',
-  'At Risk':             '#D85A30',
-  'Hibernating':         '#888780',
-  'Lost Customers':      '#993C1D',
+
+const COUNTRY_NAME_MAP = {
+  'United Kingdom': 'United Kingdom', 'Uk': 'United Kingdom',
+  'Usa': 'United States of America', 'United States': 'United States of America', 'Us': 'United States of America',
+  'Uae': 'United Arab Emirates', 'Eire': 'Ireland', 'Channel Islands': 'United Kingdom',
+  'Rsa': 'South Africa', 'Korea': 'South Korea', 'Czech Republic': 'Czechia', 'Hong Kong': 'China',
 }
 
 function fmt(v) {
   if (v == null || isNaN(v)) return '—'
-  if (v >= 1e9)  return `$${(v / 1e9).toFixed(2)}B`
-  if (v >= 1e6)  return `$${(v / 1e6).toFixed(2)}M`
-  if (v >= 1e3)  return `$${(v / 1e3).toFixed(1)}K`
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`
+  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}K`
   return `$${Math.round(v).toLocaleString()}`
-}
-
-// Maps common country name variants to ISO names used in the world atlas
-const COUNTRY_NAME_MAP = {
-  'United Kingdom':             'United Kingdom',
-  'Uk':                         'United Kingdom',
-  'Usa':                        'United States of America',
-  'United States':              'United States of America',
-  'Us':                         'United States of America',
-  'Uae':                        'United Arab Emirates',
-  'Eire':                       'Ireland',
-  'Channel Islands':            'United Kingdom',
-  'Rsa':                        'South Africa',
-  'Korea':                      'South Korea',
-  'Czech Republic':             'Czechia',
-  'Hong Kong':                  'China',
 }
 
 function normalizeCountry(name) {
   if (!name) return name
-  const titled = name.trim()
-    .split(' ')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ')
+  const titled = name.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
   return COUNTRY_NAME_MAP[titled] || titled
 }
 
@@ -60,62 +37,31 @@ export default function GeoTab({ insights }) {
 
   const [tooltipContent, setTooltipContent] = useState('')
   const [selectedRegion, setSelectedRegion] = useState(null)
-  const [zoom, setZoom]                     = useState(1)
-  const [center, setCenter]                 = useState([0, 20])
+  const [zoom, setZoom]   = useState(1)
+  const [center, setCenter] = useState([0, 20])
 
-  if (!geo || !geo.has_geo_data) {
-    return (
-      <div style={S.empty}>
-        <div style={S.emptyIcon}>🌍</div>
-        <h3 style={S.emptyTitle}>No geographic data found</h3>
-        <p style={S.emptySub}>
-          {geo?.summary?.message || 'Your dataset does not contain a geographic column.'}
-        </p>
-        <div style={S.emptyHint}>
-          Add a column named: <code>country</code>, <code>region</code>,{' '}
-          <code>state</code>, <code>city</code>, or <code>location</code>
-        </div>
-      </div>
-    )
-  }
-
-  const {
-    region_stats         = [],
-    top_regions          = [],
-    region_growth        = [],
-    regional_products    = {},
-    market_concentration = {},
-    summary              = {},
-    geo_column,
-  } = geo
+  // ── ALL hooks must be called before any conditional return ──────────────
+  const region_stats         = geo?.region_stats         || []
+  const top_regions          = geo?.top_regions          || []
+  const region_growth        = geo?.region_growth        || []
+  const regional_products    = geo?.regional_products    || {}
+  const market_concentration = geo?.market_concentration || {}
+  const summary              = geo?.summary              || {}
+  const geo_column           = geo?.geo_column           || ''
 
   const topRegions   = top_regions.slice(0, 10)
   const activeRegion = selectedRegion || topRegions[0]?.region || ''
 
-  // Build lookup: normalised country name → stats
   const regionLookup = useMemo(() => {
     const map = {}
-    region_stats.forEach(r => {
-      map[normalizeCountry(r.region)] = r
-    })
+    region_stats.forEach(r => { map[normalizeCountry(r.region)] = r })
     return map
   }, [region_stats])
 
-  // Max revenue for colour scale
   const maxRevenue = useMemo(() => {
     return Math.max(...region_stats.map(r => r.total_revenue || 0), 1)
   }, [region_stats])
 
-  function getCountryColor(geoName) {
-    const stats = regionLookup[geoName]
-    if (!stats || !stats.total_revenue) return '#F1EFE8'
-    const intensity = stats.total_revenue / maxRevenue
-    // Interpolate from light purple to deep purple
-    const alpha = Math.max(0.15, intensity)
-    return `rgba(127, 119, 221, ${alpha})`
-  }
-
-  // Growth data for selected region
   const growthData = useMemo(() => {
     const found = region_growth.find(r => r.region === activeRegion)
     return found?.monthly || []
@@ -123,22 +69,41 @@ export default function GeoTab({ insights }) {
 
   const selectedProducts = regional_products[activeRegion] || []
 
-  const hhiColor = market_concentration.hhi > 2500
-    ? '#993C1D' : market_concentration.hhi > 1500
-    ? '#BA7517' : '#0F6E56'
+  // ── NOW safe to do conditional return ───────────────────────────────────
+  if (!geo || !geo.has_geo_data) {
+    return (
+      <div style={S.empty}>
+        <div style={S.emptyIcon}>🌍</div>
+        <h3 style={S.emptyTitle}>No geographic data found</h3>
+        <p style={S.emptySub}>{geo?.summary?.message || 'Your dataset does not contain a geographic column.'}</p>
+        <div style={S.emptyHint}>
+          Add a column named: <code>country</code>, <code>region</code>, <code>state</code>, <code>city</code>, or <code>location</code>
+        </div>
+      </div>
+    )
+  }
+
+  const hhiColor = market_concentration.hhi > 2500 ? '#993C1D' : market_concentration.hhi > 1500 ? '#BA7517' : '#0F6E56'
+
+  function getCountryColor(geoName) {
+    const stats = regionLookup[geoName]
+    if (!stats || !stats.total_revenue) return '#F1EFE8'
+    const alpha = Math.max(0.15, stats.total_revenue / maxRevenue)
+    return `rgba(127, 119, 221, ${alpha})`
+  }
 
   return (
     <div>
 
-      {/* ── KPI cards ──────────────────────────────────────────────────── */}
+      {/* ── KPI cards ── */}
       <div style={S.cards}>
         {[
-          { label: 'Regions analyzed',    value: summary.total_regions,                        color: '#534AB7', bg: '#EEEDFE' },
-          { label: 'Top region',          value: summary.top_region,                           color: '#0F6E56', bg: '#E1F5EE' },
-          { label: 'Top region revenue',  value: fmt(summary.top_region_revenue),              color: '#0F6E56', bg: '#E1F5EE' },
-          { label: 'Top region share',    value: `${summary.top_region_share}%`,               color: '#534AB7', bg: '#EEEDFE' },
-          { label: 'Concentration (HHI)', value: market_concentration.hhi?.toLocaleString(),  color: hhiColor,  bg: '#F7F6F3' },
-          { label: 'Market type',         value: market_concentration.label,                   color: hhiColor,  bg: '#F7F6F3' },
+          { label: 'Regions analyzed',    value: summary.total_regions,                       color: '#534AB7', bg: '#EEEDFE' },
+          { label: 'Top region',          value: summary.top_region,                          color: '#0F6E56', bg: '#E1F5EE' },
+          { label: 'Top region revenue',  value: fmt(summary.top_region_revenue),             color: '#0F6E56', bg: '#E1F5EE' },
+          { label: 'Top region share',    value: `${summary.top_region_share}%`,              color: '#534AB7', bg: '#EEEDFE' },
+          { label: 'Concentration (HHI)', value: market_concentration.hhi?.toLocaleString(), color: hhiColor,  bg: '#F7F6F3' },
+          { label: 'Market type',         value: market_concentration.label,                  color: hhiColor,  bg: '#F7F6F3' },
         ].map(({ label, value, color, bg }) => (
           <div key={label} style={{ ...S.card, background: bg }}>
             <div style={S.cardLabel}>{label}</div>
@@ -147,24 +112,22 @@ export default function GeoTab({ insights }) {
         ))}
       </div>
 
-      {/* ── World map ─────────────────────────────────────────────────── */}
+      {/* ── World map ── */}
       <div style={S.section}>
         <div style={S.mapHeader}>
           <div>
             <div style={S.secTitle}>Customer geography</div>
             <div style={S.secSub}>
-              Colour intensity = revenue share · click a country to drill down ·
-              detected column: <code>{geo_column}</code>
+              Colour intensity = revenue · click a country to drill down · column: <code>{geo_column}</code>
             </div>
           </div>
           <div style={S.mapControls}>
             <button style={S.zoomBtn} onClick={() => setZoom(z => Math.min(z + 0.5, 8))}>+</button>
             <button style={S.zoomBtn} onClick={() => setZoom(z => Math.max(z - 0.5, 1))}>−</button>
-            <button style={{ ...S.zoomBtn, fontSize: 11 }} onClick={() => { setZoom(1); setCenter([0, 20]) }}>Reset</button>
+            <button style={{ ...S.zoomBtn, fontSize: 11, width: 48 }} onClick={() => { setZoom(1); setCenter([0, 20]) }}>Reset</button>
           </div>
         </div>
 
-        {/* Colour legend */}
         <div style={S.legend}>
           <span style={S.legendLabel}>No data</span>
           <div style={S.legendBar}>
@@ -176,53 +139,36 @@ export default function GeoTab({ insights }) {
         </div>
 
         <div style={S.mapWrap} data-tooltip-id="geo-tooltip">
-          <ComposableMap
-            projectionConfig={{ scale: 140 }}
-            style={{ width: '100%', height: '100%' }}
-          >
-            <ZoomableGroup
-              zoom={zoom}
-              center={center}
-              onMoveEnd={({ zoom: z, coordinates }) => {
-                setZoom(z)
-                setCenter(coordinates)
-              }}
+          <ComposableMap projectionConfig={{ scale: 140 }} style={{ width: '100%', height: '100%' }}>
+            <ZoomableGroup zoom={zoom} center={center}
+              onMoveEnd={({ zoom: z, coordinates }) => { setZoom(z); setCenter(coordinates) }}
             >
               <Geographies geography={GEO_URL}>
                 {({ geographies }) =>
-                  geographies.map(geo => {
-                    const geoName  = geo.properties.name
+                  geographies.map(g => {
+                    const geoName  = g.properties.name
                     const stats    = regionLookup[geoName]
                     const isActive = stats && normalizeCountry(activeRegion) === geoName
-
                     return (
                       <Geography
-                        key={geo.rsmKey}
-                        geography={geo}
+                        key={g.rsmKey}
+                        geography={g}
                         fill={isActive ? '#534AB7' : getCountryColor(geoName)}
                         stroke="#fff"
                         strokeWidth={0.4}
                         style={{
-                          default:  { outline: 'none' },
-                          hover:    { outline: 'none', fill: stats ? '#7F77DD' : '#E8E6DF', cursor: stats ? 'pointer' : 'default' },
-                          pressed:  { outline: 'none' },
+                          default: { outline: 'none' },
+                          hover:   { outline: 'none', fill: stats ? '#7F77DD' : '#E8E6DF', cursor: stats ? 'pointer' : 'default' },
+                          pressed: { outline: 'none' },
                         }}
                         onMouseEnter={() => {
-                          if (stats) {
-                            setTooltipContent(
-                              `<strong>${geoName}</strong><br/>` +
-                              (stats.total_revenue != null ? `Revenue: ${fmt(stats.total_revenue)}<br/>` : '') +
-                              (stats.revenue_share_pct != null ? `Share: ${stats.revenue_share_pct}%<br/>` : '') +
-                              (stats.unique_customers != null ? `Customers: ${stats.unique_customers.toLocaleString()}` : '')
-                            )
-                          } else {
-                            setTooltipContent(geoName)
-                          }
+                          setTooltipContent(stats
+                            ? `<strong>${geoName}</strong><br/>${stats.total_revenue != null ? `Revenue: ${fmt(stats.total_revenue)}<br/>` : ''}${stats.revenue_share_pct != null ? `Share: ${stats.revenue_share_pct}%<br/>` : ''}${stats.unique_customers != null ? `Customers: ${stats.unique_customers.toLocaleString()}` : ''}`
+                            : geoName
+                          )
                         }}
                         onMouseLeave={() => setTooltipContent('')}
-                        onClick={() => {
-                          if (stats) setSelectedRegion(stats.region)
-                        }}
+                        onClick={() => { if (stats) setSelectedRegion(stats.region) }}
                       />
                     )
                   })
@@ -232,22 +178,12 @@ export default function GeoTab({ insights }) {
           </ComposableMap>
         </div>
 
-        <ReactTooltip
-          id="geo-tooltip"
-          html={true}
-          content={tooltipContent}
-          style={{
-            background:   'white',
-            color:        '#1a1a1a',
-            border:       '0.5px solid #E8E6DF',
-            borderRadius: 8,
-            fontSize:     12,
-            boxShadow:    '0 4px 12px rgba(0,0,0,0.08)',
-          }}
+        <ReactTooltip id="geo-tooltip" html={true} content={tooltipContent}
+          style={{ background: 'white', color: '#1a1a1a', border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
         />
       </div>
 
-      {/* ── Revenue by region bar chart ───────────────────────────────── */}
+      {/* ── Revenue bar chart ── */}
       {topRegions.length > 0 && (
         <div style={S.section}>
           <div style={S.secTitle}>Revenue by region</div>
@@ -258,17 +194,15 @@ export default function GeoTab({ insights }) {
               <XAxis type="number" tick={{ fontSize: 10, fill: '#888780' }} axisLine={false} tickLine={false} tickFormatter={fmt} />
               <YAxis type="category" dataKey="region" tick={{ fontSize: 11, fill: '#5F5E5A' }} width={120} axisLine={false} tickLine={false}
                 tickFormatter={v => v?.length > 16 ? v.slice(0, 16) + '…' : v} />
-              <Tooltip
-                contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }}
-                formatter={(v, _, props) => [fmt(v), `${props.payload.region} (${props.payload.revenue_share_pct}%)`]}
-              />
+              <Tooltip contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }}
+                formatter={(v, _, props) => [fmt(v), `${props.payload.region} (${props.payload.revenue_share_pct}%)`]} />
               <Bar dataKey="total_revenue" fill="#7F77DD" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* ── Market concentration ──────────────────────────────────────── */}
+      {/* ── Market concentration ── */}
       {market_concentration.hhi && (
         <div style={S.section}>
           <div style={S.secTitle}>Market concentration</div>
@@ -282,15 +216,10 @@ export default function GeoTab({ insights }) {
               <div style={S.concTitle}>{market_concentration.label}</div>
               <div style={S.concSub}>{market_concentration.description}</div>
               <div style={S.concBars}>
-                {[
-                  { label: '#1 region', val: market_concentration.top1_share },
-                  { label: 'Top 3',     val: market_concentration.top3_share },
-                ].map(({ label, val }, i) => (
+                {[{ label: '#1 region', val: market_concentration.top1_share }, { label: 'Top 3', val: market_concentration.top3_share }].map(({ label, val }, i) => (
                   <div key={label} style={S.concBarRow}>
                     <div style={S.concBarLabel}>{label}</div>
-                    <div style={S.concBarTrack}>
-                      <div style={{ ...S.concBarFill, width: `${val}%`, background: COLORS[i] }} />
-                    </div>
+                    <div style={S.concBarTrack}><div style={{ ...S.concBarFill, width: `${val}%`, background: COLORS[i] }} /></div>
                     <div style={S.concBarVal}>{val}%</div>
                   </div>
                 ))}
@@ -300,7 +229,7 @@ export default function GeoTab({ insights }) {
         </div>
       )}
 
-      {/* ── All regions table ─────────────────────────────────────────── */}
+      {/* ── All regions table ── */}
       {region_stats.length > 0 && (
         <div style={S.section}>
           <div style={S.secTitle}>All regions</div>
@@ -311,33 +240,26 @@ export default function GeoTab({ insights }) {
                 <tr>
                   <th style={S.th}>#</th>
                   <th style={S.th}>Region</th>
-                  {region_stats[0]?.total_revenue     != null && <th style={{ ...S.th, textAlign: 'right' }}>Revenue</th>}
+                  {region_stats[0]?.total_revenue    != null && <th style={{ ...S.th, textAlign: 'right' }}>Revenue</th>}
                   <th style={{ ...S.th, textAlign: 'right' }}>Share</th>
-                  {region_stats[0]?.unique_customers  != null && <th style={{ ...S.th, textAlign: 'right' }}>Customers</th>}
-                  {region_stats[0]?.avg_order_value   != null && <th style={{ ...S.th, textAlign: 'right' }}>Avg Order</th>}
+                  {region_stats[0]?.unique_customers != null && <th style={{ ...S.th, textAlign: 'right' }}>Customers</th>}
+                  {region_stats[0]?.avg_order_value  != null && <th style={{ ...S.th, textAlign: 'right' }}>Avg Order</th>}
                   <th style={{ ...S.th, textAlign: 'right' }}>Cumulative</th>
                 </tr>
               </thead>
               <tbody>
                 {region_stats.map((r, i) => (
-                  <tr
-                    key={r.region}
-                    style={{ ...S.tr, background: r.region === activeRegion ? '#EEEDFE30' : i < 3 ? '#FAFAF8' : 'transparent', cursor: 'pointer' }}
-                    onClick={() => setSelectedRegion(r.region)}
-                  >
+                  <tr key={r.region} onClick={() => setSelectedRegion(r.region)}
+                    style={{ ...S.tr, background: r.region === activeRegion ? '#EEEDFE30' : i < 3 ? '#FAFAF8' : 'transparent', cursor: 'pointer' }}>
                     <td style={S.td}>
-                      <span style={{
-                        ...S.rank,
-                        background: i === 0 ? '#EEEDFE' : i === 1 ? '#E1F5EE' : i === 2 ? '#FAECE7' : '#F1EFE8',
-                        color:      i === 0 ? '#534AB7' : i === 1 ? '#0F6E56' : i === 2 ? '#993C1D' : '#888780',
-                      }}>{i + 1}</span>
+                      <span style={{ ...S.rank, background: i===0?'#EEEDFE':i===1?'#E1F5EE':i===2?'#FAECE7':'#F1EFE8', color: i===0?'#534AB7':i===1?'#0F6E56':i===2?'#993C1D':'#888780' }}>{i+1}</span>
                     </td>
                     <td style={{ ...S.td, fontWeight: 500, color: r.region === activeRegion ? '#534AB7' : '#1a1a1a' }}>{r.region}</td>
                     {r.total_revenue    != null && <td style={{ ...S.td, textAlign: 'right' }}>{fmt(r.total_revenue)}</td>}
                     <td style={{ ...S.td, textAlign: 'right' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
                         <div style={{ width: 40, height: 4, background: '#F1EFE8', borderRadius: 2 }}>
-                          <div style={{ height: '100%', width: `${Math.min(100, r.revenue_share_pct || 0)}%`, background: COLORS[i % COLORS.length], borderRadius: 2 }} />
+                          <div style={{ height: '100%', width: `${Math.min(100, r.revenue_share_pct||0)}%`, background: COLORS[i%COLORS.length], borderRadius: 2 }} />
                         </div>
                         {r.revenue_share_pct}%
                       </div>
@@ -353,7 +275,7 @@ export default function GeoTab({ insights }) {
         </div>
       )}
 
-      {/* ── Regional drill-down ───────────────────────────────────────── */}
+      {/* ── Drill-down ── */}
       {(growthData.length > 0 || selectedProducts.length > 0) && (
         <div style={S.section}>
           <div style={S.drillHeader}>
@@ -381,12 +303,7 @@ export default function GeoTab({ insights }) {
               <div>
                 <div style={S.drillLabel}>Top products — {activeRegion}</div>
                 <table style={S.table}>
-                  <thead>
-                    <tr>
-                      <th style={S.th}>Product</th>
-                      <th style={{ ...S.th, textAlign: 'right' }}>Revenue</th>
-                    </tr>
-                  </thead>
+                  <thead><tr><th style={S.th}>Product</th><th style={{ ...S.th, textAlign: 'right' }}>Revenue</th></tr></thead>
                   <tbody>
                     {selectedProducts.map((p, i) => (
                       <tr key={i} style={S.tr}>
@@ -408,7 +325,7 @@ export default function GeoTab({ insights }) {
 const S = {
   empty:        { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 2rem', textAlign: 'center' },
   emptyIcon:    { fontSize: 48, marginBottom: 16 },
-  emptyTitle:   { fontSize: 18, fontFamily: "'Instrument Serif', serif", color: '#1a1a1a', marginBottom: 8, margin: 0 },
+  emptyTitle:   { fontSize: 18, fontFamily: "'Instrument Serif', serif", color: '#1a1a1a', margin: 0, marginBottom: 8 },
   emptySub:     { fontSize: 14, color: '#5F5E5A', maxWidth: 400, lineHeight: 1.6, marginBottom: 12 },
   emptyHint:    { fontSize: 12, color: '#888780', background: '#F7F6F3', padding: '8px 16px', borderRadius: 8 },
   cards:        { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: '1rem' },
@@ -419,7 +336,7 @@ const S = {
   mapHeader:    { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
   secTitle:     { fontSize: 15, fontFamily: "'Instrument Serif', serif", color: '#1a1a1a', marginBottom: 2 },
   secSub:       { fontSize: 12, color: '#888780', marginBottom: 12 },
-  mapControls:  { display: 'flex', gap: 6, alignItems: 'center' },
+  mapControls:  { display: 'flex', gap: 6 },
   zoomBtn:      { background: '#F7F6F3', border: '0.5px solid #E8E6DF', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, cursor: 'pointer', color: '#534AB7', fontWeight: 500 },
   legend:       { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 },
   legendLabel:  { fontSize: 10, color: '#888780', whiteSpace: 'nowrap' },

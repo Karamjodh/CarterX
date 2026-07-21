@@ -8,6 +8,7 @@ import ClustersTab       from './dashboard/ClustersTab'
 import StatsTab          from './dashboard/StatsTab'
 import SimulationTab     from './dashboard/SimulationTab'
 import ForecastTab       from './dashboard/ForecastTab'
+import GeoTab            from './dashboard/GeoTab'
 
 // ── Auto-scaling revenue formatter ────────────────────────────────────────────
 function fmtRevenue(n) {
@@ -27,6 +28,7 @@ const NAV = [
   { id: 'forecast',       icon: '⟠', label: 'Forecast',         sub: 'Revenue prediction'  },
   { id: 'report',         icon: '✦', label: 'AI Report',        sub: 'Strategy & insights' },
   { id: 'stats',          icon: '≡', label: 'Statistics',       sub: 'Full data breakdown' },
+  { id: 'geo',            icon: '⊕', label: 'Geography',       sub: 'Regional analysis' },
 ]
 
 export default function DashboardPage() {
@@ -59,6 +61,7 @@ export default function DashboardPage() {
     forecast:       <ForecastTab       insights={insights} />,
     report:         <ReportTab         insights={insights} jobId={jobId} />,
     stats:          <StatsTab          insights={insights} />,
+    geo:            <GeoTab            insights={insights} />,
   }
 
   return (

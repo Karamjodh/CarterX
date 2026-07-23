@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react'
 import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps'
-import { Tooltip as ReactTooltip } from 'react-tooltip'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
@@ -43,8 +42,8 @@ function normalizeCountry(name) {
 export default function GeoTab({ insights }) {
   const geo = insights?.geo_data
 
-  const [tooltipContent, setTooltipContent] = useState('')
   const [selectedRegion, setSelectedRegion] = useState(null)
+  const [hoverInfo, setHoverInfo] = useState(null) // { x, y, name, entry }
   const [zoom,   setZoom]   = useState(1)
   const [center, setCenter] = useState([0, 20])
 
@@ -146,7 +145,7 @@ export default function GeoTab({ insights }) {
           <span style={S.legendLabel}>Selected</span>
         </div>
 
-        <div style={S.mapWrap} data-tooltip-id="geo-tooltip">
+        <div style={S.mapWrap}>
           <ComposableMap projectionConfig={{ scale: 147 }} style={{ width: '100%', height: '100%' }}>
             <ZoomableGroup zoom={zoom} center={center}
               onMoveEnd={({ zoom: z, coordinates }) => { setZoom(z); setCenter(coordinates) }}
@@ -170,13 +169,9 @@ export default function GeoTab({ insights }) {
                           hover:   { outline: 'none', fill: entry ? '#534AB7' : '#CBD5E1', cursor: entry ? 'pointer' : 'default', transition: 'fill 0.15s' },
                           pressed: { outline: 'none' },
                         }}
-                        onMouseEnter={() => {
-                          setTooltipContent(entry
-                            ? `<strong>${geoName}</strong><br/>${entry.total_revenue != null ? `Revenue: ${fmt(entry.total_revenue)}<br/>` : ''}${entry.revenue_share_pct != null ? `Share: ${entry.revenue_share_pct}%<br/>` : ''}${entry.unique_customers != null ? `Customers: ${entry.unique_customers.toLocaleString()}` : ''}`
-                            : `<span style="color:#94A3B8">${geoName} — no data</span>`
-                          )
-                        }}
-                        onMouseLeave={() => setTooltipContent('')}
+                        onMouseEnter={() => setHoverInfo({ x: 0, y: 0, geoName, entry })}
+                        onMouseMove={(evt) => setHoverInfo({ x: evt.clientX, y: evt.clientY, geoName, entry })}
+                        onMouseLeave={() => setHoverInfo(null)}
                         onClick={() => { if (entry) setSelectedRegion(entry.region) }}
                       />
                     )
@@ -187,9 +182,26 @@ export default function GeoTab({ insights }) {
           </ComposableMap>
         </div>
 
-        <ReactTooltip id="geo-tooltip" html={true} content={tooltipContent}
-          style={{ background: 'white', color: '#1a1a1a', border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)', zIndex: 999 }}
-        />
+        {hoverInfo && (
+          <div style={{ ...S.tooltip, left: hoverInfo.x + 14, top: hoverInfo.y + 14 }}>
+            <div style={S.tooltipName}>{hoverInfo.geoName}</div>
+            {hoverInfo.entry ? (
+              <>
+                {hoverInfo.entry.total_revenue != null && (
+                  <div>Revenue: {fmt(hoverInfo.entry.total_revenue)}</div>
+                )}
+                {hoverInfo.entry.revenue_share_pct != null && (
+                  <div>Revenue contribution: {hoverInfo.entry.revenue_share_pct}%</div>
+                )}
+                {hoverInfo.entry.unique_customers != null && (
+                  <div>Customers: {hoverInfo.entry.unique_customers.toLocaleString()}</div>
+                )}
+              </>
+            ) : (
+              <div style={{ color: '#94A3B8' }}>No data</div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Market concentration ── (moved up) */}
@@ -350,7 +362,9 @@ const S = {
   legend:       { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 10, flexWrap: 'wrap' },
   legendLabel:  { fontSize: 10, color: '#888780', whiteSpace: 'nowrap', marginRight: 2 },
   legendChip:   { width: 20, height: 12, borderRadius: 3 },
-  mapWrap:      { width: '100%', aspectRatio: '2 / 1', background: '#F8FAFC', borderRadius: 10, overflow: 'hidden', border: '0.5px solid #E8E6DF' },
+  mapWrap:      { width: '94%', margin: '0 auto', aspectRatio: '2 / 1', background: '#F8FAFC', borderRadius: 10, overflow: 'hidden', border: '2px solid #888780', touchAction: 'none' },
+  tooltip:      { position: 'fixed', zIndex: 999, background: 'white', color: '#1a1a1a', border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12, padding: '8px 10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', pointerEvents: 'none', lineHeight: 1.6 },
+  tooltipName:  { fontWeight: 600, marginBottom: 2 },
   concRow:      { display: 'flex', gap: 24, alignItems: 'flex-start', marginTop: 12 },
   concScore:    { background: '#EEEDFE', borderRadius: 10, padding: '1rem 1.25rem', textAlign: 'center', flexShrink: 0 },
   concNum:      { fontSize: 24, fontWeight: 500 },

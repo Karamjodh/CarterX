@@ -219,27 +219,33 @@ export default function ForecastTab({ insights }) {
               formatter={v => <span style={{ fontSize: 12, color: '#5F5E5A' }}>{v}</span>}
             />
 
-            {/* Confidence band */}
-            <Area
+            {/* Upper confidence bound — dashed */}
+            <Line
               type="monotone"
               dataKey="upper"
               name="Upper bound"
-              stroke="none"
-              fill="#EEEDFE"
-              fillOpacity={0.6}
-              legendType="none"
-            />
-            <Area
-              type="monotone"
-              dataKey="lower"
-              name="Lower bound"
-              stroke="none"
-              fill="#F7F6F3"
-              fillOpacity={1}
+              stroke="#AFA9EC"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+              dot={false}
+              activeDot={false}
               legendType="none"
             />
 
-            {/* Forecast line */}
+            {/* Lower confidence bound — dashed */}
+            <Line
+              type="monotone"
+              dataKey="lower"
+              name="Lower bound"
+              stroke="#AFA9EC"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+              dot={false}
+              activeDot={false}
+              legendType="none"
+            />
+
+            {/* Main forecast line */}
             <Line
               type="monotone"
               dataKey="predicted"

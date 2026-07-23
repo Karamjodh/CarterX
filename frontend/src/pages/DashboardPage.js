@@ -23,12 +23,12 @@ function fmtRevenue(n) {
 const NAV = [
   { id: 'visualizations', icon: '▦', label: 'Visualizations',  sub: 'Charts & trends'     },
   { id: 'clusters',       icon: '◉', label: 'Segments',         sub: 'Customer groups'     },
-  { id: 'simulation',     icon: '⟳', label: 'Simulation',       sub: 'What-if analysis'    },
   { id: 'rules',          icon: '⇌', label: 'Rules',            sub: 'Purchase patterns'   },
+  { id: 'simulation',     icon: '⟳', label: 'Simulation',       sub: 'What-if analysis'    },
   { id: 'forecast',       icon: '⟠', label: 'Forecast',         sub: 'Revenue prediction'  },
+  { id: 'geo',            icon: '⊕', label: 'Geography',       sub: 'Regional analysis' },
   { id: 'report',         icon: '✦', label: 'AI Report',        sub: 'Strategy & insights' },
   { id: 'stats',          icon: '≡', label: 'Statistics',       sub: 'Full data breakdown' },
-  { id: 'geo',            icon: '⊕', label: 'Geography',       sub: 'Regional analysis' },
 ]
 
 export default function DashboardPage() {

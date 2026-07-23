@@ -1,15 +1,23 @@
 import { useState, useMemo } from 'react'
-import {
-  ComposableMap, Geographies, Geography, ZoomableGroup,
-} from 'react-simple-maps'
+import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps'
 import { Tooltip as ReactTooltip } from 'react-tooltip'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, LineChart, Line,
-} from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
 const COLORS  = ['#7F77DD', '#1D9E75', '#D85A30', '#BA7517', '#185FA5', '#D4537E']
+
+// Revenue tier colours — solid, high contrast
+const REVENUE_COLORS = [
+  '#2D2693',  // tier 1 — darkest (top revenue)
+  '#4338CA',  // tier 2
+  '#6366F1',  // tier 3
+  '#818CF8',  // tier 4
+  '#A5B4FC',  // tier 5
+  '#C7D2FE',  // tier 6 — lightest (lowest revenue with data)
+]
+const NO_DATA_COLOR  = '#E2E8F0'  // clear grey for countries with no data
+const BORDER_COLOR   = '#FFFFFF'
+const ACTIVE_COLOR   = '#1D9E75'  // green for selected country
 
 const COUNTRY_NAME_MAP = {
   'United Kingdom': 'United Kingdom', 'Uk': 'United Kingdom',
@@ -37,10 +45,10 @@ export default function GeoTab({ insights }) {
 
   const [tooltipContent, setTooltipContent] = useState('')
   const [selectedRegion, setSelectedRegion] = useState(null)
-  const [zoom, setZoom]   = useState(1)
+  const [zoom,   setZoom]   = useState(1)
   const [center, setCenter] = useState([0, 20])
 
-  // ── ALL hooks must be called before any conditional return ──────────────
+  // All hooks before any early return
   const region_stats         = geo?.region_stats         || []
   const top_regions          = geo?.top_regions          || []
   const region_growth        = geo?.region_growth        || []
@@ -52,15 +60,14 @@ export default function GeoTab({ insights }) {
   const topRegions   = top_regions.slice(0, 10)
   const activeRegion = selectedRegion || topRegions[0]?.region || ''
 
+  // Build lookup: normalised name → rank (0 = top revenue)
   const regionLookup = useMemo(() => {
     const map = {}
-    region_stats.forEach(r => { map[normalizeCountry(r.region)] = r })
+    region_stats.forEach((r, i) => { map[normalizeCountry(r.region)] = { ...r, rank: i } })
     return map
   }, [region_stats])
 
-  const maxRevenue = useMemo(() => {
-    return Math.max(...region_stats.map(r => r.total_revenue || 0), 1)
-  }, [region_stats])
+  const totalRegions = region_stats.length
 
   const growthData = useMemo(() => {
     const found = region_growth.find(r => r.region === activeRegion)
@@ -69,27 +76,26 @@ export default function GeoTab({ insights }) {
 
   const selectedProducts = regional_products[activeRegion] || []
 
-  // ── NOW safe to do conditional return ───────────────────────────────────
+  // Early return after all hooks
   if (!geo || !geo.has_geo_data) {
     return (
       <div style={S.empty}>
-        <div style={S.emptyIcon}>🌍</div>
+        <div style={S.emptyIcon}>⊕</div>
         <h3 style={S.emptyTitle}>No geographic data found</h3>
         <p style={S.emptySub}>{geo?.summary?.message || 'Your dataset does not contain a geographic column.'}</p>
-        <div style={S.emptyHint}>
-          Add a column named: <code>country</code>, <code>region</code>, <code>state</code>, <code>city</code>, or <code>location</code>
-        </div>
+        <div style={S.emptyHint}>Add a column named: <code>country</code>, <code>region</code>, <code>state</code>, <code>city</code>, or <code>location</code></div>
       </div>
     )
   }
 
   const hhiColor = market_concentration.hhi > 2500 ? '#993C1D' : market_concentration.hhi > 1500 ? '#BA7517' : '#0F6E56'
 
+  // Assign solid colour by revenue rank — 6 tiers
   function getCountryColor(geoName) {
-    const stats = regionLookup[geoName]
-    if (!stats || !stats.total_revenue) return '#F1EFE8'
-    const alpha = Math.max(0.15, stats.total_revenue / maxRevenue)
-    return `rgba(127, 119, 221, ${alpha})`
+    const entry = regionLookup[geoName]
+    if (!entry) return NO_DATA_COLOR
+    const tier = Math.min(5, Math.floor((entry.rank / Math.max(totalRegions, 1)) * 6))
+    return REVENUE_COLORS[tier]
   }
 
   return (
@@ -118,7 +124,7 @@ export default function GeoTab({ insights }) {
           <div>
             <div style={S.secTitle}>Customer geography</div>
             <div style={S.secSub}>
-              Colour intensity = revenue · click a country to drill down · column: <code>{geo_column}</code>
+              Darker = higher revenue · click a country to drill down · column: <code>{geo_column}</code>
             </div>
           </div>
           <div style={S.mapControls}>
@@ -128,18 +134,20 @@ export default function GeoTab({ insights }) {
           </div>
         </div>
 
+        {/* Colour legend */}
         <div style={S.legend}>
           <span style={S.legendLabel}>No data</span>
-          <div style={S.legendBar}>
-            {[0.15, 0.3, 0.5, 0.7, 0.85, 1].map(a => (
-              <div key={a} style={{ ...S.legendChunk, background: `rgba(127,119,221,${a})` }} />
-            ))}
-          </div>
+          <div style={{ ...S.legendChip, background: NO_DATA_COLOR }} />
+          {REVENUE_COLORS.slice().reverse().map((c, i) => (
+            <div key={i} style={{ ...S.legendChip, background: c }} />
+          ))}
           <span style={S.legendLabel}>Highest revenue</span>
+          <div style={{ ...S.legendChip, background: ACTIVE_COLOR, marginLeft: 12 }} />
+          <span style={S.legendLabel}>Selected</span>
         </div>
 
         <div style={S.mapWrap} data-tooltip-id="geo-tooltip">
-          <ComposableMap projectionConfig={{ scale: 140 }} style={{ width: '100%', height: '100%' }}>
+          <ComposableMap projectionConfig={{ scale: 147 }} style={{ width: '100%', height: '100%' }}>
             <ZoomableGroup zoom={zoom} center={center}
               onMoveEnd={({ zoom: z, coordinates }) => { setZoom(z); setCenter(coordinates) }}
             >
@@ -147,28 +155,29 @@ export default function GeoTab({ insights }) {
                 {({ geographies }) =>
                   geographies.map(g => {
                     const geoName  = g.properties.name
-                    const stats    = regionLookup[geoName]
-                    const isActive = stats && normalizeCountry(activeRegion) === geoName
+                    const entry    = regionLookup[geoName]
+                    const isActive = entry && normalizeCountry(activeRegion) === geoName
+                    const fill     = isActive ? ACTIVE_COLOR : getCountryColor(geoName)
                     return (
                       <Geography
                         key={g.rsmKey}
                         geography={g}
-                        fill={isActive ? '#534AB7' : getCountryColor(geoName)}
-                        stroke="#fff"
-                        strokeWidth={0.4}
+                        fill={fill}
+                        stroke={BORDER_COLOR}
+                        strokeWidth={0.6}
                         style={{
                           default: { outline: 'none' },
-                          hover:   { outline: 'none', fill: stats ? '#7F77DD' : '#E8E6DF', cursor: stats ? 'pointer' : 'default' },
+                          hover:   { outline: 'none', fill: entry ? '#534AB7' : '#CBD5E1', cursor: entry ? 'pointer' : 'default', transition: 'fill 0.15s' },
                           pressed: { outline: 'none' },
                         }}
                         onMouseEnter={() => {
-                          setTooltipContent(stats
-                            ? `<strong>${geoName}</strong><br/>${stats.total_revenue != null ? `Revenue: ${fmt(stats.total_revenue)}<br/>` : ''}${stats.revenue_share_pct != null ? `Share: ${stats.revenue_share_pct}%<br/>` : ''}${stats.unique_customers != null ? `Customers: ${stats.unique_customers.toLocaleString()}` : ''}`
-                            : geoName
+                          setTooltipContent(entry
+                            ? `<strong>${geoName}</strong><br/>${entry.total_revenue != null ? `Revenue: ${fmt(entry.total_revenue)}<br/>` : ''}${entry.revenue_share_pct != null ? `Share: ${entry.revenue_share_pct}%<br/>` : ''}${entry.unique_customers != null ? `Customers: ${entry.unique_customers.toLocaleString()}` : ''}`
+                            : `<span style="color:#94A3B8">${geoName} — no data</span>`
                           )
                         }}
                         onMouseLeave={() => setTooltipContent('')}
-                        onClick={() => { if (stats) setSelectedRegion(stats.region) }}
+                        onClick={() => { if (entry) setSelectedRegion(entry.region) }}
                       />
                     )
                   })
@@ -179,30 +188,11 @@ export default function GeoTab({ insights }) {
         </div>
 
         <ReactTooltip id="geo-tooltip" html={true} content={tooltipContent}
-          style={{ background: 'white', color: '#1a1a1a', border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+          style={{ background: 'white', color: '#1a1a1a', border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)', zIndex: 999 }}
         />
       </div>
 
-      {/* ── Revenue bar chart ── */}
-      {topRegions.length > 0 && (
-        <div style={S.section}>
-          <div style={S.secTitle}>Revenue by region</div>
-          <div style={S.secSub}>Top {topRegions.length} regions</div>
-          <ResponsiveContainer width="100%" height={Math.max(200, topRegions.length * 36 + 40)}>
-            <BarChart data={topRegions} layout="vertical" barSize={18} margin={{ top: 8, right: 60, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1EFE8" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#888780' }} axisLine={false} tickLine={false} tickFormatter={fmt} />
-              <YAxis type="category" dataKey="region" tick={{ fontSize: 11, fill: '#5F5E5A' }} width={120} axisLine={false} tickLine={false}
-                tickFormatter={v => v?.length > 16 ? v.slice(0, 16) + '…' : v} />
-              <Tooltip contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }}
-                formatter={(v, _, props) => [fmt(v), `${props.payload.region} (${props.payload.revenue_share_pct}%)`]} />
-              <Bar dataKey="total_revenue" fill="#7F77DD" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* ── Market concentration ── */}
+      {/* ── Market concentration ── (moved up) */}
       {market_concentration.hhi && (
         <div style={S.section}>
           <div style={S.secTitle}>Market concentration</div>
@@ -226,6 +216,69 @@ export default function GeoTab({ insights }) {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Regional drill-down ── (moved up) */}
+      {(growthData.length > 0 || selectedProducts.length > 0) && (
+        <div style={S.section}>
+          <div style={S.drillHeader}>
+            <div style={S.secTitle}>Regional drill-down</div>
+            <select value={activeRegion} onChange={e => setSelectedRegion(e.target.value)} style={S.select}>
+              {topRegions.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
+            </select>
+          </div>
+          <div style={S.drillGrid}>
+            {growthData.length > 0 && (
+              <div>
+                <div style={S.drillLabel}>Monthly revenue — {activeRegion}</div>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={growthData} margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1EFE8" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#888780' }} tickFormatter={m => m?.slice(5)} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#888780' }} axisLine={false} tickLine={false} tickFormatter={fmt} />
+                    <Tooltip contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }} formatter={v => [fmt(v), 'Revenue']} />
+                    <Line type="monotone" dataKey="total_revenue" stroke="#7F77DD" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {selectedProducts.length > 0 && (
+              <div>
+                <div style={S.drillLabel}>Top products — {activeRegion}</div>
+                <table style={S.table}>
+                  <thead><tr><th style={S.th}>Product</th><th style={{ ...S.th, textAlign: 'right' }}>Revenue</th></tr></thead>
+                  <tbody>
+                    {selectedProducts.map((p, i) => (
+                      <tr key={i} style={S.tr}>
+                        <td style={S.td}>{p.product_name?.length > 30 ? p.product_name.slice(0, 30) + '…' : p.product_name}</td>
+                        <td style={{ ...S.td, textAlign: 'right', fontWeight: 500 }}>{fmt(p.total_revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Revenue bar chart ── */}
+      {topRegions.length > 0 && (
+        <div style={S.section}>
+          <div style={S.secTitle}>Revenue by region</div>
+          <div style={S.secSub}>Top {topRegions.length} regions</div>
+          <ResponsiveContainer width="100%" height={Math.max(200, topRegions.length * 36 + 40)}>
+            <BarChart data={topRegions} layout="vertical" barSize={18} margin={{ top: 8, right: 60, bottom: 0, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F1EFE8" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: '#888780' }} axisLine={false} tickLine={false} tickFormatter={fmt} />
+              <YAxis type="category" dataKey="region" tick={{ fontSize: 11, fill: '#5F5E5A' }} width={120} axisLine={false} tickLine={false}
+                tickFormatter={v => v?.length > 16 ? v.slice(0, 16) + '…' : v} />
+              <Tooltip contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }}
+                formatter={(v, _, props) => [fmt(v), `${props.payload.region} (${props.payload.revenue_share_pct}%)`]} />
+              <Bar dataKey="total_revenue" fill="#7F77DD" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
 
@@ -274,57 +327,13 @@ export default function GeoTab({ insights }) {
           </div>
         </div>
       )}
-
-      {/* ── Drill-down ── */}
-      {(growthData.length > 0 || selectedProducts.length > 0) && (
-        <div style={S.section}>
-          <div style={S.drillHeader}>
-            <div style={S.secTitle}>Regional drill-down</div>
-            <select value={activeRegion} onChange={e => setSelectedRegion(e.target.value)} style={S.select}>
-              {topRegions.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
-            </select>
-          </div>
-          <div style={S.drillGrid}>
-            {growthData.length > 0 && (
-              <div>
-                <div style={S.drillLabel}>Monthly revenue — {activeRegion}</div>
-                <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={growthData} margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1EFE8" vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#888780' }} tickFormatter={m => m?.slice(5)} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#888780' }} axisLine={false} tickLine={false} tickFormatter={fmt} />
-                    <Tooltip contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }} formatter={v => [fmt(v), 'Revenue']} />
-                    <Line type="monotone" dataKey="total_revenue" stroke="#7F77DD" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-            {selectedProducts.length > 0 && (
-              <div>
-                <div style={S.drillLabel}>Top products — {activeRegion}</div>
-                <table style={S.table}>
-                  <thead><tr><th style={S.th}>Product</th><th style={{ ...S.th, textAlign: 'right' }}>Revenue</th></tr></thead>
-                  <tbody>
-                    {selectedProducts.map((p, i) => (
-                      <tr key={i} style={S.tr}>
-                        <td style={S.td}>{p.product_name?.length > 30 ? p.product_name.slice(0, 30) + '…' : p.product_name}</td>
-                        <td style={{ ...S.td, textAlign: 'right', fontWeight: 500 }}>{fmt(p.total_revenue)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 const S = {
   empty:        { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 2rem', textAlign: 'center' },
-  emptyIcon:    { fontSize: 48, marginBottom: 16 },
+  emptyIcon:    { fontSize: 48, marginBottom: 16, color: '#D3D1C7' },
   emptyTitle:   { fontSize: 18, fontFamily: "'Instrument Serif', serif", color: '#1a1a1a', margin: 0, marginBottom: 8 },
   emptySub:     { fontSize: 14, color: '#5F5E5A', maxWidth: 400, lineHeight: 1.6, marginBottom: 12 },
   emptyHint:    { fontSize: 12, color: '#888780', background: '#F7F6F3', padding: '8px 16px', borderRadius: 8 },
@@ -335,14 +344,13 @@ const S = {
   section:      { background: 'white', border: '0.5px solid #E8E6DF', borderRadius: 12, padding: '1.25rem', marginBottom: '1rem' },
   mapHeader:    { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
   secTitle:     { fontSize: 15, fontFamily: "'Instrument Serif', serif", color: '#1a1a1a', marginBottom: 2 },
-  secSub:       { fontSize: 12, color: '#888780', marginBottom: 12 },
+  secSub:       { fontSize: 12, color: '#888780', marginBottom: 8 },
   mapControls:  { display: 'flex', gap: 6 },
   zoomBtn:      { background: '#F7F6F3', border: '0.5px solid #E8E6DF', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, cursor: 'pointer', color: '#534AB7', fontWeight: 500 },
-  legend:       { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 },
-  legendLabel:  { fontSize: 10, color: '#888780', whiteSpace: 'nowrap' },
-  legendBar:    { display: 'flex', flex: 1, height: 8, borderRadius: 4, overflow: 'hidden', maxWidth: 200 },
-  legendChunk:  { flex: 1, height: '100%' },
-  mapWrap:      { width: '100%', height: 420, background: '#F7F6F3', borderRadius: 10, overflow: 'hidden', border: '0.5px solid #E8E6DF' },
+  legend:       { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 10, flexWrap: 'wrap' },
+  legendLabel:  { fontSize: 10, color: '#888780', whiteSpace: 'nowrap', marginRight: 2 },
+  legendChip:   { width: 20, height: 12, borderRadius: 3 },
+  mapWrap:      { width: '100%', height: 440, background: '#F8FAFC', borderRadius: 10, overflow: 'hidden', border: '0.5px solid #E8E6DF' },
   concRow:      { display: 'flex', gap: 24, alignItems: 'flex-start', marginTop: 12 },
   concScore:    { background: '#EEEDFE', borderRadius: 10, padding: '1rem 1.25rem', textAlign: 'center', flexShrink: 0 },
   concNum:      { fontSize: 24, fontWeight: 500 },

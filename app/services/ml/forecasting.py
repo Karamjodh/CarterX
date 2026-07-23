@@ -1,26 +1,30 @@
+# BEFORE
 """
-CarterX — Forecasting Engine
-─────────────────────────────────────────────────────────────────────────────
-Generates revenue forecasts using LSTM or Prophet fallback.
-
+...
 STRATEGY:
   1. Build monthly revenue series from preprocessed data
   2. If >= 12 months of data → LSTM (Keras sequential model)
   3. If < 12 months          → Prophet (handles short series better)
   4. Output: daily forecast points for 30/60/90/180 days ahead
              with upper/lower confidence bands
+...
+"""
 
-OUTPUT CONTRACT (what ForecastTab.js reads):
-  {
-    "model_used":    "LSTM" | "Prophet" | "Linear Trend",
-    "history":       [{"date": "2023-01", "revenue": 12000}, ...],
-    "forecast":      [{"date": "2024-02-01", "predicted": 13200,
-                       "lower": 11800, "upper": 14600}, ...],
-    "horizons":      [30, 60, 90, 180],
-    "mae":           450.2,
-    "has_date_data": true,
-    "warning":       null | "string"
-  }
+# AFTER
+"""
+...
+STRATEGY:
+  1. Build monthly revenue series from preprocessed data
+  2. If >= 24 months of data → LSTM (Keras sequential model)
+     LSTM needs at least 2 full years to learn seasonal patterns.
+     With less data it collapses to predicting the mean.
+  3. If 3–23 months          → Prophet (Facebook)
+     Handles short series better — fits trend + seasonality directly
+     without needing long sequences.
+  4. If < 3 months           → No forecast (not enough signal)
+  5. Output: monthly forecast points for 1/2/3/6 months ahead
+             with ±12% confidence band
+...
 """
 
 from __future__ import annotations
@@ -80,21 +84,19 @@ def run_forecasting(df_clean: pd.DataFrame, dataset_type: str) -> ForecastResult
             for _, row in monthly.iterrows()
         ]
 
-        try:
-            if len(monthly) >= 12:
-                forecast, mae, model_name = _run_lstm(monthly)
-            else:
-                forecast, mae, model_name = _run_prophet(monthly)
-        except Exception as e:
-            logger.warning("Primary model failed (%s) — falling back to Linear Trend", e)
-            forecast, mae, model_name = _run_linear_fallback(monthly)
+        # Need at least 24 months for LSTM to learn meaningful patterns
+        # UCI dataset has only 13 months → use Prophet which handles short series better
+        if len(monthly) >= 24:
+            forecast, mae, model_name = _run_lstm(monthly)
+        else:
+            forecast, mae, model_name = _run_prophet(monthly)
 
         return ForecastResult(
             success       = True,
             model_used    = model_name,
             history       = history,
             forecast      = forecast,
-            horizons      = [30, 60, 90, 180],
+            horizons      = [1, 2, 3, 6],   # months ahead
             mae           = round(float(mae), 2),
             has_date_data = True,
         )
@@ -202,12 +204,10 @@ def _build_monthly_series(df: pd.DataFrame, dataset_type: str) -> Optional[pd.Da
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_lstm(monthly: pd.DataFrame) -> tuple[list, float, str]:
-    try:
-        import tensorflow as tf
-        from tensorflow import keras
-    except ImportError:
-        logger.warning("TensorFlow not installed — falling back to Linear Trend")
-        return _run_linear_fallback(monthly)
+    import tensorflow as tf
+    from tensorflow import keras
+
+    tf.get_logger().setLevel("ERROR")
 
     values = monthly["revenue"].values.astype(float)
     n      = len(values)
@@ -274,7 +274,7 @@ def _run_lstm(monthly: pd.DataFrame) -> tuple[list, float, str]:
 
     monthly_preds = [p * scale + v_min for p in monthly_preds_norm]
     last_date     = pd.Period(monthly["month"].iloc[-1], "M")
-    forecast      = _monthly_to_daily(monthly_preds, last_date)
+    forecast      = _build_monthly_forecast(monthly_preds, last_date)
 
     return forecast, mae, "LSTM"
 
@@ -306,20 +306,21 @@ def _run_prophet(monthly: pd.DataFrame) -> tuple[list, float, str]:
         warnings.simplefilter("ignore")
         model.fit(df_prophet)
 
-    future   = model.make_future_dataframe(periods=180, freq="D")
+    # Predict 6 months ahead using monthly frequency
+    future   = model.make_future_dataframe(periods=6, freq="MS")
     forecast = model.predict(future)
 
     hist_preds = forecast[forecast["ds"].isin(df_prophet["ds"])]["yhat"].values
     mae        = float(np.mean(np.abs(hist_preds - df_prophet["y"].values)))
 
-    future_fc                 = forecast[forecast["ds"] > df_prophet["ds"].max()].copy()
-    future_fc["yhat"]         = future_fc["yhat"].clip(lower=0)
-    future_fc["yhat_lower"]   = future_fc["yhat_lower"].clip(lower=0)
-    future_fc["yhat_upper"]   = future_fc["yhat_upper"].clip(lower=0)
+    future_fc = forecast[forecast["ds"] > df_prophet["ds"].max()].copy()
+    future_fc["yhat"]       = future_fc["yhat"].clip(lower=0)
+    future_fc["yhat_lower"] = future_fc["yhat_lower"].clip(lower=0)
+    future_fc["yhat_upper"] = future_fc["yhat_upper"].clip(lower=0)
 
     points = [
         {
-            "date":      row["ds"].strftime("%Y-%m-%d"),
+            "date":      row["ds"].strftime("%Y-%m"),   # ← YYYY-MM not YYYY-MM-DD
             "predicted": round(float(row["yhat"]), 2),
             "lower":     round(float(row["yhat_lower"]), 2),
             "upper":     round(float(row["yhat_upper"]), 2),
@@ -343,37 +344,34 @@ def _run_linear_fallback(monthly: pd.DataFrame) -> tuple[list, float, str]:
 
     last_date     = pd.Period(monthly["month"].iloc[-1], "M")
     monthly_preds = [max(0, float(trend(len(values) - 1 + i))) for i in range(1, 7)]
-    points        = _monthly_to_daily(monthly_preds, last_date)
+    points        = _build_monthly_forecast(monthly_preds, last_date)
 
     return points, mae, "Linear Trend"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Monthly → Daily interpolation
+#  Monthly forecast output builder
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _monthly_to_daily(monthly_preds: list, last_history_month: pd.Period) -> list:
+def _build_monthly_forecast(monthly_preds: list, last_history_month: pd.Period) -> list:
+    """
+    Converts list of predicted monthly revenue values into the forecast output
+    format. Each point represents one full month — no daily interpolation.
+
+    Output format:
+      { "date": "2024-02", "predicted": 85000, "lower": 74800, "upper": 95200 }
+    """
     points        = []
     current_month = last_history_month + 1
 
-    for i, monthly_val in enumerate(monthly_preds):
+    for i, val in enumerate(monthly_preds):
+        val          = max(0.0, float(val))
         month_period = current_month + i
-        start        = month_period.to_timestamp("D", "S")
-        end          = month_period.to_timestamp("D", "E")
-        days         = pd.date_range(start, end, freq="D")
-
-        if i + 1 < len(monthly_preds):
-            day_vals = np.linspace(monthly_val, monthly_preds[i + 1], len(days))
-        else:
-            day_vals = np.full(len(days), monthly_val)
-
-        for day, val in zip(days, day_vals):
-            val = max(0, float(val))
-            points.append({
-                "date":      day.strftime("%Y-%m-%d"),
-                "predicted": round(val, 2),
-                "lower":     round(val * (1 - CI_WIDTH), 2),
-                "upper":     round(val * (1 + CI_WIDTH), 2),
-            })
+        points.append({
+            "date":      str(month_period),              # e.g. "2024-02"
+            "predicted": round(val, 2),
+            "lower":     round(val * (1 - CI_WIDTH), 2),
+            "upper":     round(val * (1 + CI_WIDTH), 2),
+        })
 
     return points

@@ -1,14 +1,13 @@
 import { useState, useMemo } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, Area, Line,
+  ResponsiveContainer, ComposedChart, Area, Line, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
-
 const HORIZON_OPTIONS = [
-  { label: '30d',  days: 30  },
-  { label: '60d',  days: 60  },
-  { label: '90d',  days: 90  },
-  { label: '180d', days: 180 },
+  { label: '1 month',  months: 1 },
+  { label: '2 months', months: 2 },
+  { label: '3 months', months: 3 },
+  { label: '6 months', months: 6 },
 ]
 
 function fmt(v) {
@@ -41,7 +40,7 @@ function CustomTooltip({ active, payload, label }) {
 export default function ForecastTab({ insights }) {
   const fd = insights?.forecast_data
 
-  const [horizon, setHorizon] = useState(90)
+  const [horizon, setHorizon] = useState(3)   // months
 
   // Extract data — must happen before any conditional return
   const history  = fd?.history  || []
@@ -84,16 +83,13 @@ export default function ForecastTab({ insights }) {
     actual: h.revenue,
   }))
 
-  // Sample forecast to ~30 points max so chart isn't sluggish
-  const step = Math.max(1, Math.floor(forecastSlice.length / 30))
-  const forecastChartData = forecastSlice
-    .filter((_, i) => i % step === 0 || i === forecastSlice.length - 1)
-    .map(f => ({
-      date:      fmtDate(f.date),
-      predicted: f.predicted,
-      lower:     f.lower,
-      upper:     f.upper,
-    }))
+  // Monthly data — no sampling needed, max 6 points
+  const forecastChartData = forecastSlice.map(f => ({
+    date:      f.date,   // already "YYYY-MM" format
+    predicted: f.predicted,
+    lower:     f.lower,
+    upper:     f.upper,
+  }))
 
   // KPIs
   const endForecast   = forecastSlice[forecastSlice.length - 1]
@@ -127,13 +123,13 @@ export default function ForecastTab({ insights }) {
           <span style={S.horizonLabel}>Forecast horizon</span>
           {HORIZON_OPTIONS.map(opt => (
             <button
-              key={opt.days}
-              onClick={() => setHorizon(opt.days)}
+              key={opt.months}
+              onClick={() => setHorizon(opt.months)}
               style={{
                 ...S.horizonBtn,
-                background:  horizon === opt.days ? '#EEEDFE' : 'white',
-                color:       horizon === opt.days ? '#534AB7' : '#5F5E5A',
-                borderColor: horizon === opt.days ? '#AFA9EC' : '#D3D1C7',
+                background:  horizon === opt.months ? '#EEEDFE' : 'white',
+                color:       horizon === opt.months ? '#534AB7' : '#5F5E5A',
+                borderColor: horizon === opt.months ? '#AFA9EC' : '#D3D1C7',
               }}
             >
               {opt.label}
@@ -146,7 +142,7 @@ export default function ForecastTab({ insights }) {
       <div style={S.kpiRow}>
         {[
           { label: 'Last actual month',    value: fmt(lastActual),    color: '#534AB7', bg: '#EEEDFE' },
-          { label: `Revenue in ${horizon}d`, value: fmt(totalForecast), color: '#0F6E56', bg: '#E1F5EE' },
+          { label: `Revenue in ${horizon}mo`, value: fmt(totalForecast), color: '#0F6E56', bg: '#E1F5EE' },
           { label: 'Forecast end value',   value: fmt(forecastEnd),   color: '#0F6E56', bg: '#E1F5EE' },
           { label: 'Growth over period',   value: `${growthPct > 0 ? '+' : ''}${growthPct}%`,
             color: growthPct >= 0 ? '#534AB7' : '#993C1D',
@@ -195,18 +191,17 @@ export default function ForecastTab({ insights }) {
 
       {/* ── Forecast chart ───────────────────────────────────────────── */}
       <div style={S.card}>
-        <div style={S.cardTitle}>Revenue forecast — next {horizon} days</div>
+        <div style={S.cardTitle}>Revenue forecast — next {horizon} month{horizon > 1 ? 's' : ''}</div>
         <div style={S.cardSub}>
-          Predicted daily revenue with ±12% confidence band
+          Predicted monthly revenue with ±12% confidence band
         </div>
         <ResponsiveContainer width="100%" height={260}>
           <ComposedChart data={forecastChartData} margin={{ top: 8, right: 16, bottom: 0, left: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#F1EFE8" vertical={false} />
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 10, fill: '#888780' }}
+              tick={{ fontSize: 11, fill: '#888780' }}
               axisLine={false} tickLine={false}
-              interval={Math.floor(forecastChartData.length / 6)}
             />
             <YAxis
               tick={{ fontSize: 10, fill: '#888780' }}
@@ -214,46 +209,43 @@ export default function ForecastTab({ insights }) {
               axisLine={false} tickLine={false}
               width={60}
             />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend
-              formatter={v => <span style={{ fontSize: 12, color: '#5F5E5A' }}>{v}</span>}
+            <Tooltip
+              contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }}
+              formatter={(v, name) => [fmt(v), name]}
+            />
+            <Legend formatter={v => <span style={{ fontSize: 12, color: '#5F5E5A' }}>{v}</span>} />
+
+            {/* Predicted revenue bars */}
+            <Bar
+              dataKey="predicted"
+              name="Predicted revenue"
+              fill="#7F77DD"
+              radius={[4, 4, 0, 0]}
+              barSize={40}
             />
 
-            {/* Upper confidence bound — dashed */}
+            {/* Upper confidence bound line */}
             <Line
               type="monotone"
               dataKey="upper"
               name="Upper bound"
               stroke="#AFA9EC"
-              strokeWidth={1}
+              strokeWidth={1.5}
               strokeDasharray="4 3"
-              dot={false}
-              activeDot={false}
+              dot={{ r: 3, fill: '#AFA9EC' }}
               legendType="none"
             />
 
-            {/* Lower confidence bound — dashed */}
+            {/* Lower confidence bound line */}
             <Line
               type="monotone"
               dataKey="lower"
               name="Lower bound"
               stroke="#AFA9EC"
-              strokeWidth={1}
+              strokeWidth={1.5}
               strokeDasharray="4 3"
-              dot={false}
-              activeDot={false}
+              dot={{ r: 3, fill: '#AFA9EC' }}
               legendType="none"
-            />
-
-            {/* Main forecast line */}
-            <Line
-              type="monotone"
-              dataKey="predicted"
-              name="Predicted revenue"
-              stroke="#7F77DD"
-              strokeWidth={2.5}
-              dot={false}
-              activeDot={{ r: 4 }}
             />
           </ComposedChart>
         </ResponsiveContainer>

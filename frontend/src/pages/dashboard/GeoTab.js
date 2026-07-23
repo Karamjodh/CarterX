@@ -350,7 +350,7 @@ const S = {
   legend:       { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 10, flexWrap: 'wrap' },
   legendLabel:  { fontSize: 10, color: '#888780', whiteSpace: 'nowrap', marginRight: 2 },
   legendChip:   { width: 20, height: 12, borderRadius: 3 },
-  mapWrap:      { width: '100%', height: 440, background: '#F8FAFC', borderRadius: 10, overflow: 'hidden', border: '0.5px solid #E8E6DF' },
+  mapWrap:      { width: '100%', aspectRatio: '2 / 1', background: '#F8FAFC', borderRadius: 10, overflow: 'hidden', border: '0.5px solid #E8E6DF' },
   concRow:      { display: 'flex', gap: 24, alignItems: 'flex-start', marginTop: 12 },
   concScore:    { background: '#EEEDFE', borderRadius: 10, padding: '1rem 1.25rem', textAlign: 'center', flexShrink: 0 },
   concNum:      { fontSize: 24, fontWeight: 500 },

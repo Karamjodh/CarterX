@@ -4,6 +4,20 @@ Chart.register(...registerables)
 
 const PALETTE = ['#7F77DD', '#1D9E75', '#D85A30', '#BA7517', '#185FA5', '#D4537E']
 
+// Same model set the forecasting engine can return — kept in sync with
+// ForecastTab's MODEL_BADGES so both tabs describe the active model
+// consistently instead of this tab assuming it's always LSTM.
+const MODEL_INFO = {
+  LSTM:           { icon: '🧠', label: 'LSTM' },
+  SARIMA:         { icon: '🔁', label: 'SARIMA' },
+  Prophet:        { icon: '📊', label: 'Prophet' },
+  'Linear Trend': { icon: '📈', label: 'Linear Trend' },
+}
+
+function modelInfo(modelUsed) {
+  return MODEL_INFO[modelUsed] || { icon: '🔮', label: modelUsed || 'model' }
+}
+
 function fmt(n) {
   if (n == null || isNaN(n)) return '—'
   if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
@@ -130,6 +144,7 @@ function buildSimulation({ forecastData, clusters, targetSeg, discount, horizon,
     volUplift:       Math.round(volUplift * 100),
     breakEvenDay,
     hasRealForecast,
+    modelUsed:       hasRealForecast ? (forecastData?.model_used || null) : null,
   }
 }
 
@@ -382,11 +397,14 @@ export default function SimulationTab({ insights }) {
 
       {/* ── Forecast source notice ────────────────────────────────────── */}
       {sim.hasRealForecast ? (
-        <div style={S.noticeLSTM}>
-          <span>🧠</span>
+        <div style={S.noticeForecast}>
+          <span>{modelInfo(sim.modelUsed).icon}</span>
           <div>
-            <strong>LSTM-powered baseline</strong> — simulation uses real forecast data.
+            <strong>{modelInfo(sim.modelUsed).label}-powered baseline</strong> — simulation uses real forecast data.
             Elasticity is computed per segment from RFM monetary values.
+            {forecastData?.warning && (
+              <div style={{ marginTop: 4, opacity: 0.85 }}>{forecastData.warning}</div>
+            )}
           </div>
         </div>
       ) : (
@@ -394,7 +412,7 @@ export default function SimulationTab({ insights }) {
           <span>⚡</span>
           <div>
             No date data in this dataset — using average daily revenue as baseline.
-            Upload transactional data with dates for LSTM-powered simulation.
+            Upload transactional data with dates to enable model-powered simulation.
           </div>
         </div>
       )}
@@ -457,7 +475,7 @@ export default function SimulationTab({ insights }) {
             <div style={S.cardTitle}>Revenue projection over time</div>
             <div style={S.cardSub}>
               {sim.hasRealForecast
-                ? 'LSTM forecast baseline vs campaign scenario'
+                ? `${modelInfo(sim.modelUsed).label} forecast baseline vs campaign scenario`
                 : 'Average daily rate baseline vs campaign scenario'}
             </div>
           </div>
@@ -513,7 +531,7 @@ export default function SimulationTab({ insights }) {
 }
 
 const S = {
-  noticeLSTM:    { background: '#E1F5EE', border: '0.5px solid #1D9E75', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12, color: '#0F6E56' },
+  noticeForecast:{ background: '#E1F5EE', border: '0.5px solid #1D9E75', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12, color: '#0F6E56' },
   noticeFallback:{ background: '#FAEEDA', border: '0.5px solid #BA7517', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12, color: '#854F0B' },
   controlsCard:  { background: 'white', border: '0.5px solid #E8E6DF', borderRadius: 12, padding: '1.25rem', marginBottom: 12 },
   controlsRow:   { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, marginBottom: 12 },

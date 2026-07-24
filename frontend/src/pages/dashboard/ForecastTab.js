@@ -1,14 +1,45 @@
 import { useState, useMemo } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, Area, Line, Bar,
+  ResponsiveContainer, ComposedChart, Area, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
+
 const HORIZON_OPTIONS = [
-  { label: '1 month',  months: 1 },
-  { label: '2 months', months: 2 },
-  { label: '3 months', months: 3 },
-  { label: '6 months', months: 6 },
+  { label: '30d',  days: 30  },
+  { label: '60d',  days: 60  },
+  { label: '90d',  days: 90  },
+  { label: '180d', days: 180 },
 ]
+
+// Model badge config — adaptable: add a new model here and the badge,
+// icon, and tooltip all pick it up automatically. Falls back to a
+// generic badge for any model name the backend introduces later.
+const MODEL_BADGES = {
+  LSTM: {
+    icon: '🧠',
+    label: 'LSTM Model',
+    hint: 'Neural network trained on 2+ years of daily history — best for long, complex patterns.',
+  },
+  SARIMA: {
+    icon: '🔁',
+    label: 'SARIMA Model',
+    hint: 'Seasonal ARIMA (weekly cycle) — used for 12–24 months of daily history.',
+  },
+  Prophet: {
+    icon: '📊',
+    label: 'Prophet Model',
+    hint: 'Trend + weekly/yearly seasonality decomposition — used for shorter histories (< 12 months).',
+  },
+  'Linear Trend': {
+    icon: '📈',
+    label: 'Linear Trend',
+    hint: 'Trend line with day-of-week seasonal offsets — the safety-net model when nothing else fits.',
+  },
+}
+
+function modelBadge(modelUsed) {
+  return MODEL_BADGES[modelUsed] || { icon: '🔮', label: modelUsed || 'Model', hint: '' }
+}
 
 function fmt(v) {
   if (v == null) return '—'
@@ -40,7 +71,7 @@ function CustomTooltip({ active, payload, label }) {
 export default function ForecastTab({ insights }) {
   const fd = insights?.forecast_data
 
-  const [horizon, setHorizon] = useState(3)   // months
+  const [horizon, setHorizon] = useState(90)
 
   // Extract data — must happen before any conditional return
   const history  = fd?.history  || []
@@ -83,13 +114,16 @@ export default function ForecastTab({ insights }) {
     actual: h.revenue,
   }))
 
-  // Monthly data — no sampling needed, max 6 points
-  const forecastChartData = forecastSlice.map(f => ({
-    date:      f.date,   // already "YYYY-MM" format
-    predicted: f.predicted,
-    lower:     f.lower,
-    upper:     f.upper,
-  }))
+  // Sample forecast to ~30 points max so chart isn't sluggish
+  const step = Math.max(1, Math.floor(forecastSlice.length / 30))
+  const forecastChartData = forecastSlice
+    .filter((_, i) => i % step === 0 || i === forecastSlice.length - 1)
+    .map(f => ({
+      date:      fmtDate(f.date),
+      predicted: f.predicted,
+      lower:     f.lower,
+      upper:     f.upper,
+    }))
 
   // KPIs
   const endForecast   = forecastSlice[forecastSlice.length - 1]
@@ -108,12 +142,12 @@ export default function ForecastTab({ insights }) {
       {/* ── Header ──────────────────────────────────────────────────── */}
       <div style={S.header}>
         <div>
-          <div style={S.modelBadge}>
-            {fd.model_used === 'LSTM' ? '🧠 LSTM Model' : fd.model_used === 'Prophet' ? '📊 Prophet Model' : '📈 Linear Trend'}
+          <div style={S.modelBadge} title={modelBadge(fd.model_used).hint}>
+            {modelBadge(fd.model_used).icon} {modelBadge(fd.model_used).label}
           </div>
           {fd.mae > 0 && (
             <div style={S.maeLine}>
-              Validation MAE: {fmt(fd.mae)} · Based on {history.length} months of data
+              Validation MAE: {fmt(fd.mae)} · Trained on daily data ({history.length} months shown)
             </div>
           )}
         </div>
@@ -123,13 +157,13 @@ export default function ForecastTab({ insights }) {
           <span style={S.horizonLabel}>Forecast horizon</span>
           {HORIZON_OPTIONS.map(opt => (
             <button
-              key={opt.months}
-              onClick={() => setHorizon(opt.months)}
+              key={opt.days}
+              onClick={() => setHorizon(opt.days)}
               style={{
                 ...S.horizonBtn,
-                background:  horizon === opt.months ? '#EEEDFE' : 'white',
-                color:       horizon === opt.months ? '#534AB7' : '#5F5E5A',
-                borderColor: horizon === opt.months ? '#AFA9EC' : '#D3D1C7',
+                background:  horizon === opt.days ? '#EEEDFE' : 'white',
+                color:       horizon === opt.days ? '#534AB7' : '#5F5E5A',
+                borderColor: horizon === opt.days ? '#AFA9EC' : '#D3D1C7',
               }}
             >
               {opt.label}
@@ -142,7 +176,7 @@ export default function ForecastTab({ insights }) {
       <div style={S.kpiRow}>
         {[
           { label: 'Last actual month',    value: fmt(lastActual),    color: '#534AB7', bg: '#EEEDFE' },
-          { label: `Revenue in ${horizon}mo`, value: fmt(totalForecast), color: '#0F6E56', bg: '#E1F5EE' },
+          { label: `Revenue in ${horizon}d`, value: fmt(totalForecast), color: '#0F6E56', bg: '#E1F5EE' },
           { label: 'Forecast end value',   value: fmt(forecastEnd),   color: '#0F6E56', bg: '#E1F5EE' },
           { label: 'Growth over period',   value: `${growthPct > 0 ? '+' : ''}${growthPct}%`,
             color: growthPct >= 0 ? '#534AB7' : '#993C1D',
@@ -191,17 +225,18 @@ export default function ForecastTab({ insights }) {
 
       {/* ── Forecast chart ───────────────────────────────────────────── */}
       <div style={S.card}>
-        <div style={S.cardTitle}>Revenue forecast — next {horizon} month{horizon > 1 ? 's' : ''}</div>
+        <div style={S.cardTitle}>Revenue forecast — next {horizon} days</div>
         <div style={S.cardSub}>
-          Predicted monthly revenue with ±12% confidence band
+          Predicted daily revenue with a model-estimated confidence band
         </div>
         <ResponsiveContainer width="100%" height={260}>
           <ComposedChart data={forecastChartData} margin={{ top: 8, right: 16, bottom: 0, left: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#F1EFE8" vertical={false} />
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 11, fill: '#888780' }}
+              tick={{ fontSize: 10, fill: '#888780' }}
               axisLine={false} tickLine={false}
+              interval={Math.floor(forecastChartData.length / 6)}
             />
             <YAxis
               tick={{ fontSize: 10, fill: '#888780' }}
@@ -209,52 +244,62 @@ export default function ForecastTab({ insights }) {
               axisLine={false} tickLine={false}
               width={60}
             />
-            <Tooltip
-              contentStyle={{ border: '0.5px solid #E8E6DF', borderRadius: 8, fontSize: 12 }}
-              formatter={(v, name) => [fmt(v), name]}
-            />
-            <Legend formatter={v => <span style={{ fontSize: 12, color: '#5F5E5A' }}>{v}</span>} />
-
-            {/* Predicted revenue bars */}
-            <Bar
-              dataKey="predicted"
-              name="Predicted revenue"
-              fill="#7F77DD"
-              radius={[4, 4, 0, 0]}
-              barSize={40}
+            <Tooltip content={<CustomTooltip />} />
+            <Legend
+              formatter={v => <span style={{ fontSize: 12, color: '#5F5E5A' }}>{v}</span>}
             />
 
-            {/* Upper confidence bound line */}
+            {/* Upper confidence bound — dashed */}
             <Line
               type="monotone"
               dataKey="upper"
               name="Upper bound"
               stroke="#AFA9EC"
-              strokeWidth={1.5}
+              strokeWidth={1}
               strokeDasharray="4 3"
-              dot={{ r: 3, fill: '#AFA9EC' }}
+              dot={false}
+              activeDot={false}
               legendType="none"
             />
 
-            {/* Lower confidence bound line */}
+            {/* Lower confidence bound — dashed */}
             <Line
               type="monotone"
               dataKey="lower"
               name="Lower bound"
               stroke="#AFA9EC"
-              strokeWidth={1.5}
+              strokeWidth={1}
               strokeDasharray="4 3"
-              dot={{ r: 3, fill: '#AFA9EC' }}
+              dot={false}
+              activeDot={false}
               legendType="none"
+            />
+
+            {/* Main forecast line */}
+            <Line
+              type="monotone"
+              dataKey="predicted"
+              name="Predicted revenue"
+              stroke="#7F77DD"
+              strokeWidth={2.5}
+              dot={false}
+              activeDot={{ r: 4 }}
             />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
 
-      {/* ── Warning if any ──────────────────────────────────────────── */}
+      {/* ── Warning / fallback notice if any ───────────────────────────
+          The backend can now report two different kinds of notice here:
+          - a data-quality warning (short history, etc.) → amber
+          - an automatic model-fallback notice (requested tier's
+            dependency/fit failed, stepped down to a simpler model) → blue
+          We tell them apart by a keyword the backend always includes
+          when it downgrades, so the UI doesn't need its own logic to
+          duplicate the fallback chain. */}
       {fd.warning && (
-        <div style={S.warning}>
-          ⚡ {fd.warning}
+        <div style={fd.warning.includes('fell back') || fd.warning.includes('fallback') ? S.infoNotice : S.warning}>
+          {fd.warning.includes('fell back') || fd.warning.includes('fallback') ? 'ℹ️' : '⚡'} {fd.warning}
         </div>
       )}
 
@@ -284,6 +329,7 @@ const S = {
   tooltipDate:  { fontWeight: 500, color: '#1a1a1a', marginBottom: 4 },
   // Warning
   warning:      { background: '#FAEEDA', border: '0.5px solid #BA7517', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#854F0B' },
+  infoNotice:   { background: '#EEF3FC', border: '0.5px solid #6C93C7', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#2B4C7E' },
   // Empty state
   emptyState:   { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 20px', gap: 12 },
   emptyIcon:    { fontSize: 40 },
